@@ -3,6 +3,22 @@
 SSH tunnel client for OpenWrt with a LuCI page. It works like HTTP Custom:
 SSH is the base, and you add the layers you need on top of it.
 
+## Preview
+
+![Status page](docs/screenshots/desktop-status.png)
+
+![Connection log](docs/screenshots/desktop-log.png)
+
+On a phone:
+
+<p>
+  <img src="docs/screenshots/mobile-status.png" width="32%" alt="Status on a phone">
+  <img src="docs/screenshots/mobile-accounts.png" width="32%" alt="Accounts on a phone">
+  <img src="docs/screenshots/mobile-settings.png" width="32%" alt="Settings on a phone">
+</p>
+
+Screenshots taken on ImmortalWrt with the footstrap theme. Public IP and ISP are blurred.
+
 ## Connection types
 
 | Connection | What it does |
