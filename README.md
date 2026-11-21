@@ -7,8 +7,6 @@ SSH is the base, and you add the layers you need on top of it.
 
 ![Status page](docs/screenshots/desktop-status.png)
 
-![Connection log](docs/screenshots/desktop-log.png)
-
 Screenshots taken on ImmortalWrt with the footstrap theme. Public IP and ISP are blurred.
 
 ## Connection types
