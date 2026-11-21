@@ -1,0 +1,35 @@
+#!/bin/sh
+if [ ! -f /etc/config/tomato-tunnel ]; then
+	cat > /etc/config/tomato-tunnel <<'CFG'
+config main 'main'
+	option autostart '0'
+	option profile ''
+	option net_mode 'tun'
+	option socks_listen '127.0.0.1'
+	option socks_port '1080'
+	option sessions '1'
+	option check_url 'http://cp.cloudflare.com/generate_204'
+	option check_interval '5'
+	option check_fail '3'
+	option failover '1'
+	option restart_modem '0'
+	option modem_iface 'wwan'
+	option ssh_compat 'auto'
+	option dns_mode 'tunnel'
+	option dns_server '1.1.1.1'
+	option manage_dnsmasq '1'
+	option banner 'default'
+	option log_level 'info'
+	option update_repo 'dudul19/tomato-tunnel'
+	option update_channel 'stable'
+	option update_check '1'
+CFG
+fi
+chmod 600 /etc/config/tomato-tunnel
+mkdir -p /etc/tomato-tunnel /www/luci-static/tomato-tunnel
+[ -f /etc/tomato-tunnel/banner.img ] && ln -sf /etc/tomato-tunnel/banner.img /www/luci-static/tomato-tunnel/banner.img
+/etc/init.d/tomato-tunnel enable
+[ -x /sbin/fw4 ] && fw4 -q reload
+rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null
+/etc/init.d/rpcd reload 2>/dev/null
+exit 0

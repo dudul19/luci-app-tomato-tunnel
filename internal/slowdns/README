@@ -1,0 +1,4 @@
+dns.go, http.go and tls.go come from dnstt-client
+(https://www.bamsoftware.com/git/dnstt.git, v1.20260501.0) by David Fifield,
+public domain under CC0 1.0. Changed: package name and a selectable query
+type (rrtype.go) for servers that answer NULL, CNAME, NS, MX or SRV.

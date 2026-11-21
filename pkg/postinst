@@ -1,0 +1,10 @@
+#!/bin/sh
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+if [ -f /etc/uci-defaults/90-tomato-tunnel ]; then
+	sh /etc/uci-defaults/90-tomato-tunnel && rm -f /etc/uci-defaults/90-tomato-tunnel
+fi
+if [ -f /tmp/.tomato-tunnel-was-running ] || pgrep -f "/usr/bin/tomato-tunnel run" >/dev/null 2>&1; then
+	rm -f /tmp/.tomato-tunnel-was-running
+	/etc/init.d/tomato-tunnel restart >/dev/null 2>&1
+fi
+exit 0

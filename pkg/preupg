@@ -1,0 +1,4 @@
+#!/bin/sh
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+pgrep -f "/usr/bin/tomato-tunnel run" >/dev/null 2>&1 && touch /tmp/.tomato-tunnel-was-running
+exit 0

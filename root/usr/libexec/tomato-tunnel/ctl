@@ -1,0 +1,101 @@
+#!/bin/sh
+RUN=/var/run/tomato-tunnel
+BIN=/usr/bin/tomato-tunnel
+INIT=/etc/init.d/tomato-tunnel
+BANNER=/etc/tomato-tunnel/banner.img
+WWW=/www/luci-static/tomato-tunnel
+
+running() {
+	[ -f "$RUN/status.json" ] || return 1
+	pid=$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$RUN/status.json")
+	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+case "$1" in
+	status)
+		if running; then cat "$RUN/status.json"; else echo '{"state":"stopped"}'; fi
+		;;
+	normalize)
+		active=$(uci -q get tomato-tunnel.main.profile)
+		changed=0
+		for cid in $(uci -X show tomato-tunnel 2>/dev/null | sed -n 's/^tomato-tunnel\.\(cfg[0-9a-f]*\)=profile$/\1/p'); do
+			n=1
+			while uci -q get "tomato-tunnel.p$n" >/dev/null; do n=$((n + 1)); done
+			uci rename "tomato-tunnel.$cid=p$n" || continue
+			[ "$active" = "$cid" ] && uci set "tomato-tunnel.main.profile=p$n"
+			changed=1
+		done
+		[ "$changed" = 1 ] && uci commit tomato-tunnel
+		echo ok
+		;;
+	version)
+		"$BIN" version
+		;;
+	start|stop|restart)
+		"$INIT" "$1" >/dev/null 2>&1
+		echo ok
+		;;
+	log)
+		tail -n "${2:-1000}" "$RUN/tunnel.log" 2>/dev/null
+		;;
+	clear-log)
+		: > "$RUN/tunnel.log" 2>/dev/null
+		running && kill -USR1 "$pid"
+		echo ok
+		;;
+	test)
+		[ -n "$2" ] || { echo '{"ok":false,"error":"no profile"}'; exit 1; }
+		"$BIN" test "$2"
+		;;
+	update-check)
+		"$BIN" update check
+		;;
+	update-install)
+		mkdir -p "$RUN"
+		echo "starting" > "$RUN/update.log"
+		if command -v setsid >/dev/null 2>&1; then
+			( setsid "$BIN" update install >> "$RUN/update.log" 2>&1 < /dev/null & ) >/dev/null 2>&1
+		else
+			( "$BIN" update install >> "$RUN/update.log" 2>&1 < /dev/null & ) >/dev/null 2>&1
+		fi
+		echo started
+		;;
+	update-log)
+		cat "$RUN/update.log" 2>/dev/null
+		;;
+	update-cached)
+		cat "$RUN/update.json" 2>/dev/null || echo '{}'
+		;;
+	ifaces)
+		for d in /sys/class/net/*; do
+			n=${d##*/}
+			case "$n" in lo|tt0|ifb*|teql*|gre*|ip6tnl*|sit*|erspan*) continue;; esac
+			echo "$n"
+		done
+		;;
+	banner-set)
+		f=/tmp/tt-banner.upload
+		[ -f "$f" ] || { echo "no upload"; exit 1; }
+		size=$(wc -c < "$f")
+		[ "$size" -le 524288 ] || { rm -f "$f"; echo "image is larger than 500 KB"; exit 1; }
+		if command -v hexdump >/dev/null 2>&1; then
+			magic=$(hexdump -n 4 -e '4/1 "%02x"' "$f" 2>/dev/null)
+			case "$magic" in
+				ffd8ff*|89504e47|52494646) ;;
+				*) rm -f "$f"; echo "only JPG, PNG or WebP"; exit 1 ;;
+			esac
+		fi
+		mkdir -p /etc/tomato-tunnel "$WWW"
+		mv "$f" "$BANNER"
+		ln -sf "$BANNER" "$WWW/banner.img"
+		echo ok
+		;;
+	banner-clear)
+		rm -f "$BANNER" "$WWW/banner.img"
+		echo ok
+		;;
+	*)
+		echo "usage: $0 status|start|stop|restart|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|ifaces|banner-set|banner-clear" >&2
+		exit 2
+		;;
+esac

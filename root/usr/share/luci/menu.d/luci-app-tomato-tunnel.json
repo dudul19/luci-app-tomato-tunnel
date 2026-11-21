@@ -1,0 +1,14 @@
+{
+	"admin/services/tomato-tunnel": {
+		"title": "Tomato Tunnel",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "tomato-tunnel/main"
+		},
+		"depends": {
+			"acl": [ "luci-app-tomato-tunnel" ],
+			"uci": { "tomato-tunnel": true }
+		}
+	}
+}

@@ -1,0 +1,7 @@
+#!/bin/sh
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+[ "$1" = upgrade ] && exit 0
+/etc/init.d/tomato-tunnel stop >/dev/null 2>&1
+/usr/libexec/tomato-tunnel/net.sh down >/dev/null 2>&1
+/etc/init.d/tomato-tunnel disable >/dev/null 2>&1
+exit 0

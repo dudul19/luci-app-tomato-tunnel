@@ -1,0 +1,18 @@
+{
+	"luci-app-tomato-tunnel": {
+		"description": "Grant access to Tomato Tunnel",
+		"read": {
+			"file": {
+				"/usr/libexec/tomato-tunnel/ctl": [ "exec" ],
+				"/var/run/tomato-tunnel/status.json": [ "read" ]
+			},
+			"uci": [ "tomato-tunnel" ]
+		},
+		"write": {
+			"file": {
+				"/tmp/tt-banner.upload": [ "write" ]
+			},
+			"uci": [ "tomato-tunnel" ]
+		}
+	}
+}
