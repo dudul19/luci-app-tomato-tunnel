@@ -105,7 +105,8 @@ function section(title, kids, descr) {
 	]);
 }
 function row(title, widget, descr) {
-	return E('div', { 'class': 'cbi-value' }, [
+	var sw = widget && widget.classList && widget.classList.contains('cbi-checkbox');
+	return E('div', { 'class': 'cbi-value' + (sw ? ' tt-sw' : '') }, [
 		E('label', { 'class': 'cbi-value-title' }, title),
 		E('div', { 'class': 'cbi-value-field' }, [ widget, descr ? E('div', { 'class': 'cbi-value-description' }, descr) : '' ])
 	]);
@@ -207,7 +208,7 @@ return view.extend({
 		this.tabsEl = E('ul', { 'class': 'cbi-tabmenu' });
 		this.bodyEl = E('div', { 'class': 'tt-wrap' });
 		var root = E('div', { 'class': 'cbi-map tt-wrap' }, [
-			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) }),
+			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-3' }),
 			E('h2', { 'name': 'content' }, 'Tomato Tunnel'),
 			E('div', { 'class': 'cbi-map-descr' }, [ 'SSH tunnel: Direct, Payload, SSL/SNI, WebSocket, SlowDNS and Enhanced payload. Made by ',
 				E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, '@dudulrealnofek'), '.' ]),
@@ -382,24 +383,27 @@ return view.extend({
 		var list = this.refs.list;
 		list.innerHTML = '';
 		if (!ps.length) { list.appendChild(E('em', {}, 'No profiles yet.')); return; }
-		list.appendChild(table([ 'Name', 'Mode', 'Server', 'Active', '' ], ps.map(function(p, i) {
+		list.appendChild(E('div', { 'class': 'tt-plist' }, ps.map(function(p, i) {
 			var id = p['.name'];
 			var L = layers(p);
 			var where = L.dns ? 'NS ' + (p.dns_domain || '?') : (p.host || '?') + ':' + (p.port || defPort(L));
-			return [
-				E('strong', {}, (id === self.sel ? '▸ ' : '') + (p.name || id)),
-				layerLabel(L),
-				E('span', { 'class': 'tt-mono' }, where),
-				id === active ? E('span', { 'class': 'tt-ok' }, '● active') : button('Use', 'apply', function() {
-					self.set('profile', id);
-					self.commit(false).then(function() { return self.runAfterSave(true); }).then(function() { self.paintList(); });
-				}),
-				E('div', { 'class': 'tt-actions', 'style': 'margin:0' }, [
+			var on = id === active;
+			return E('div', { 'class': 'tt-pi' + (id === self.sel ? ' sel' : '') }, [
+				E('div', { 'class': 'tt-pm' }, [
+					E('div', { 'class': 'tt-pn' }, [ E('strong', {}, p.name || id), on ? E('span', { 'class': 'tt-ok tt-pa' }, '● active') : '' ]),
+					E('div', { 'class': 'tt-pd' }, layerLabel(L)),
+					E('div', { 'class': 'tt-pd tt-mono' }, where)
+				]),
+				E('div', { 'class': 'tt-pb' }, [
+					on ? '' : button('Use', 'apply', function() {
+						self.set('profile', id);
+						self.commit(false).then(function() { return self.runAfterSave(true); }).then(function() { self.paintList(); });
+					}),
 					button('Edit', 'edit', function() { self.sel = id; self.draft = null; self.paintList(); self.paintEditor(); self.refs.editor.scrollIntoView({ behavior: 'smooth' }); }),
 					i > 0 ? button('↑', 'neutral', function() { self.move(id, -1); }) : '',
 					i < ps.length - 1 ? button('↓', 'neutral', function() { self.move(id, 1); }) : ''
 				])
-			];
+			]);
 		})));
 	},
 
@@ -737,7 +741,7 @@ return view.extend({
 			section('Appearance', [
 				row('Banner', bannerSel, 'Custom: JPG / PNG / WebP, about 1200×200, max 500 KB.')
 			]),
-			E('div', { 'class': 'cbi-page-actions' }, [
+			E('div', { 'class': 'cbi-page-actions tt-pgact' }, [
 				button('Save & Apply', 'apply', function() { self.commit(false).then(function() { return self.runAfterSave(false); }); }), ' ',
 				button('Reset', 'reset', function() { uci.unload(CONF); uci.load(CONF).then(function() { self.show('settings'); }); })
 			])
@@ -798,7 +802,7 @@ return view.extend({
 				E('div', { 'class': 'tt-box' }, [ 'Made by ', E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, E('strong', {}, '@dudulrealnofek')), ' · Telegram · bug reports & ideas welcome' ]),
 				E('div', { 'class': 'tt-box' }, [ 'Group ', E('a', { 'href': 'https://t.me/tfnuklir', 'target': '_blank', 'rel': 'noopener' }, E('strong', {}, '@tfnuklir')), ' · Telegram' ]),
 				E('h4', {}, 'Thanks to'),
-				table([ 'Who', 'For' ], [
+				E('div', { 'class': 'tt-thx' }, [
 					[ 'wegare', 'https://github.com/wegare123/stl', 'stl — SSH injector for OpenWrt, the starting idea' ],
 					[ 'heiher', 'https://github.com/heiher/hev-socks5-tunnel', 'hev-socks5-tunnel — TUN to SOCKS5' ],
 					[ 'David Fifield', 'https://www.bamsoftware.com/software/dnstt/', 'dnstt — DNS tunnel behind SlowDNS' ],
@@ -806,7 +810,7 @@ return view.extend({
 					[ 'OpenWrt & ImmortalWrt', 'https://openwrt.org/', 'the firmware and LuCI' ],
 					[ 'HTTP Custom', null, 'inspiration for the payload modes' ]
 				].map(function(t) {
-					return [ t[1] ? E('a', { 'href': t[1], 'target': '_blank', 'rel': 'noopener' }, E('strong', {}, t[0])) : E('strong', {}, t[0]), t[2] ];
+					return E('div', { 'class': 'tt-thr' }, [ t[1] ? E('a', { 'href': t[1], 'target': '_blank', 'rel': 'noopener' }, E('strong', {}, t[0])) : E('strong', {}, t[0]), E('span', {}, t[2]) ]);
 				})),
 				E('p', {}, 'License: GPL-3.0 · source on GitHub')
 			])
