@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/apernet/hysteria/core/v2/client"
+
 	"github.com/dudul19/tomato-tunnel/internal/config"
 	"github.com/dudul19/tomato-tunnel/internal/logx"
 	"golang.org/x/crypto/ssh"
@@ -30,6 +32,7 @@ type Pool struct {
 	Info    *HandshakeInfo
 	RX, TX  atomic.Int64
 	streams atomic.Int64
+	zv      client.Client
 }
 
 type slot struct {
@@ -44,6 +47,9 @@ func NewPool(p config.Profile, compat, iface string, log *logx.Logger) *Pool {
 }
 
 func (p *Pool) Connect(ctx context.Context, n int) error {
+	if p.IsZivpn() {
+		return p.connectZivpn(ctx)
+	}
 	c, info, err := p.open(ctx, 1)
 	if err != nil {
 		return err
@@ -210,6 +216,9 @@ func (p *Pool) Dead() <-chan struct{} { return p.dead }
 func (p *Pool) Sessions() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.zv != nil {
+		return 1
+	}
 	return len(p.slots)
 }
 
@@ -228,6 +237,9 @@ func (p *Pool) pick() *slot {
 var ErrNoSession = errors.New("tunnel not connected")
 
 func (p *Pool) Dial(addr string) (net.Conn, error) {
+	if p.IsZivpn() {
+		return p.dialZivpn(addr)
+	}
 	s := p.pick()
 	if s == nil {
 		return nil, ErrNoSession
@@ -267,7 +279,12 @@ func (p *Pool) Close() {
 	p.closed = true
 	slots := p.slots
 	p.slots = nil
+	zv := p.zv
+	p.zv = nil
 	p.mu.Unlock()
+	if zv != nil {
+		zv.Close()
+	}
 	p.cancel()
 	for _, s := range slots {
 		s.c.Close()
@@ -297,7 +314,9 @@ func (c *countConn) Write(b []byte) (int, error) {
 
 func (c *countConn) Close() error {
 	c.once.Do(func() {
-		c.s.active.Add(-1)
+		if c.s != nil {
+			c.s.active.Add(-1)
+		}
 		c.p.streams.Add(-1)
 	})
 	return c.Conn.Close()

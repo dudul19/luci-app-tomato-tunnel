@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"net"
@@ -205,11 +206,13 @@ func CleanBanner(s string) string {
 	return reBlank.ReplaceAllString(s, "\n\n")
 }
 
+var ErrAuth = errors.New("login failed: wrong username/password, account locked or expired")
+
 func explainSSH(err error) error {
 	s := err.Error()
 	switch {
 	case strings.Contains(s, "unable to authenticate"):
-		return fmt.Errorf("login failed: wrong username/password or account expired")
+		return ErrAuth
 	case strings.Contains(s, "no common algorithm"):
 		return fmt.Errorf("%v (try SSH compatibility: Legacy)", err)
 	case strings.Contains(s, "i/o timeout"):

@@ -98,3 +98,91 @@
 	.tt-l { gap: .6em; }
 }
 .tt-wrap .cbi-section h4 { margin: 1.2em 0 .5em; }
+
+.tt-head { display: flex; align-items: center; gap: 1em; flex-wrap: wrap; margin-bottom: .8em; }
+.tt-hl { flex: 1 1 18em; min-width: 0; display: flex; flex-direction: column; gap: .3em; }
+.tt-state { display: flex; align-items: baseline; gap: .6em; flex-wrap: wrap; font-size: 1.35em; }
+.tt-state .tt-sname { font-weight: bold; }
+.tt-sub2 { display: flex; flex-direction: column; gap: .15em; font-size: 13px; opacity: .8; }
+.tt-hacts { margin: 0; }
+.tt-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .7em; margin: .3em 0 .8em; }
+.tt-stat { border: 1px solid rgba(127, 127, 127, .35); border-radius: 0; background: rgba(127, 127, 127, .06); padding: .6em .8em; min-width: 0; }
+.tt-sl { font-size: 12px; opacity: .75; }
+.tt-sv { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; font-size: 1.35em; font-weight: 500; margin: .15em 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-ss { font-size: 12px; opacity: .7; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tt-dl { color: #2b8fd6; }
+.tt-ul { color: #d08a00; }
+.tt-chart { border: 1px solid rgba(127, 127, 127, .35); background: rgba(127, 127, 127, .06); padding: .5em .8em .6em; }
+.tt-chart-h { display: flex; justify-content: space-between; gap: 1em; font-size: 12px; opacity: .8; margin-bottom: .3em; flex-wrap: wrap; }
+.tt-chartbox { position: relative; height: 120px; }
+.tt-chartbox svg { width: 100%; height: 120px; display: block; }
+.tt-chartbox .tt-cg line { stroke: rgba(127, 127, 127, .25); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tt-chartbox polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.tt-chartbox .tt-cd { stroke: #2b8fd6; }
+.tt-chartbox .tt-cu { stroke: #d08a00; }
+.tt-cmax { position: absolute; top: 0; left: 0; font-size: 11px; opacity: .6; font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+.tt-note { font-size: 12px; opacity: .75; margin-top: .6em; overflow-wrap: anywhere; }
+.tt-swbox { display: flex; flex-wrap: wrap; align-items: center; gap: .5em; }
+.tt-swbox .cbi-button { margin: 0 !important; }
+.tt-muted { opacity: .65; }
+
+.tt-ptools { display: flex; flex-wrap: wrap; align-items: center; gap: .6em; margin-bottom: .4em; }
+.tt-seg { display: inline-flex; flex-wrap: wrap; }
+.tt-seg .cbi-button { margin: 0 !important; border-radius: 0 !important; height: auto !important; min-height: 32px; line-height: 1.3 !important; padding: .35em .9em !important; white-space: nowrap; }
+.tt-ptools > .cbi-button { margin: 0 !important; }
+.tt-ptools .tt-ic { display: inline-flex !important; align-items: center; justify-content: center; width: 32px !important; min-width: 32px !important; height: 32px !important; min-height: 0 !important; padding: 0 !important; line-height: 1 !important; }
+.tt-ptools .tt-ic.spin svg { animation: ttspin 1s linear infinite; }
+@keyframes ttspin { 50% { opacity: .25; } }
+.tt-polhint { margin: 0 0 .8em !important; }
+.tt-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .7em; }
+.tt-tile { display: flex; flex-direction: column; align-items: stretch; gap: .35em; min-width: 0; height: auto; box-sizing: border-box; padding: .7em .85em; text-align: start; line-height: 1.4; cursor: pointer; user-select: none;
+	background: rgba(127, 127, 127, .06); border: 2px solid rgba(127, 127, 127, .35); border-radius: 0; }
+.tt-tile:hover:not(.dis):not(.cur) { border-color: #2b8fd6; }
+.tt-tile:focus-visible { outline: 2px solid #2b8fd6; outline-offset: 2px; }
+.tt-tile.dis { cursor: default; opacity: .55; }
+.tt-tile.cur { border-color: #2b8fd6; background: rgba(43, 143, 214, .12); cursor: default; opacity: 1; }
+.tt-tile.sw { border-style: dashed; border-color: #d08a00; opacity: 1; }
+.tt-tt { display: flex; align-items: center; gap: .6em; min-width: 0; }
+.tt-tile > span { display: block; }
+.tt-tile > .tt-tt { display: flex; }
+.tt-tt strong { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.tt-td { font-size: 12.5px; opacity: .8; overflow-wrap: anywhere; }
+.tt-tg { font-size: 12px; font-weight: bold; }
+.tt-lat { flex: 0 0 auto; font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; padding: 0 .4em; border: 1px solid rgba(127, 127, 127, .5); }
+.tt-lat.good { color: #2e9d48; border-color: #2e9d48; }
+.tt-lat.mid { color: #c98a00; border-color: #c98a00; }
+.tt-lat.slow { color: #e0662f; border-color: #e0662f; }
+.tt-lat.bad { color: #d9363e; border-color: #d9363e; }
+
+@media (max-width: 1200px) {
+	.tt-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1000px) {
+	.tt-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.tt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+	.tt-grid { grid-template-columns: minmax(0, 1fr); }
+	.tt-hacts { flex: 1 1 100%; }
+	.tt-ptools { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+	.tt-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+	.tt-ptools .tt-ic { width: 40px !important; height: 40px !important; }
+	.tt-seg .cbi-button { min-height: 40px; padding: 0 .3em !important; font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.tt-tile { min-height: 44px; }
+	.tt-state { font-size: 1.2em; }
+	.tt-head { gap: .8em; margin-bottom: .6em; }
+	.tt-stats { gap: .5em; margin: .2em 0 .6em; }
+	.tt-stat { padding: .5em .6em; }
+	.tt-sv { font-size: 16px; }
+	.tt-chartbox, .tt-chartbox svg { height: 90px; }
+	.tt-chart { padding: .4em .6em .5em; }
+	.tt-note { display: none; }
+}
+
+.tt-wrap .cbi-section { margin-bottom: 1rem; }
+.tt-wrap .cbi-section-node > .tt-grid:last-child,
+.tt-wrap .cbi-section-node > .tt-chart:last-child,
+.tt-wrap .cbi-section-node > .tt-note:last-child,
+.tt-wrap .cbi-section-node > .tt-actions:last-child { margin-bottom: .75rem; }
+.tt-wrap .tt-chart { margin-bottom: .5rem; }
+.tt-wrap .tt-grid { margin-bottom: .75rem; }

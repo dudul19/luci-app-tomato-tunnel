@@ -29,6 +29,7 @@ type Main struct {
 	CheckInterval int
 	CheckFail     int
 	Failover      bool
+	Policy        string
 	RestartModem  bool
 	ModemIface    string
 	SSHCompat     string
@@ -46,6 +47,7 @@ type Profile struct {
 	ID      string
 	Alias   string
 	Name    string
+	Type    string
 	fileIdx int
 
 	UsePayload bool
@@ -141,7 +143,7 @@ func defaults() Main {
 		NetMode: "tun", SocksListen: "127.0.0.1", SocksPort: 1080, RedirPort: 12345, DNSPort: 5453,
 		LanIface: "br-lan", Sessions: 1,
 		CheckURL: "http://cp.cloudflare.com/generate_204", CheckInterval: 5, CheckFail: 3,
-		Failover: true, ModemIface: "wwan", SSHCompat: "auto", DNSMode: "tunnel", DNSServer: "1.1.1.1",
+		Failover: true, Policy: "fallback", ModemIface: "wwan", SSHCompat: "auto", DNSMode: "tunnel", DNSServer: "1.1.1.1",
 		ManageDnsmasq: true, LogLevel: "info", UpdateRepo: "dudul19/tomato-tunnel", UpdateChannel: "stable", UpdateCheck: true,
 	}
 }
@@ -161,6 +163,11 @@ func readMain(m *Main, s *uci.Section) {
 	m.CheckInterval = n(s, "check_interval", m.CheckInterval, 2, 600)
 	m.CheckFail = n(s, "check_fail", m.CheckFail, 1, 20)
 	m.Failover = b(s, "failover", m.Failover)
+	pol := "manual"
+	if m.Failover {
+		pol = "fallback"
+	}
+	m.Policy = oneOf(s.Get("policy", pol), pol, "manual", "fallback", "auto")
 	m.RestartModem = b(s, "restart_modem", m.RestartModem)
 	m.ModemIface = s.Get("modem_iface", m.ModemIface)
 	m.SSHCompat = oneOf(s.Get("ssh_compat", m.SSHCompat), m.SSHCompat, "auto", "legacy", "modern")
@@ -183,6 +190,7 @@ func readProfile(s *uci.Section) Profile {
 	p := Profile{
 		ID:         s.Name,
 		Name:       s.Get("name", s.Name),
+		Type:       oneOf(s.Get("type", "ssh"), "ssh", "ssh", "zivpn"),
 		Mode:       oneOf(s.Get("mode", ""), "", "direct", "payload", "ssl", "ws", "wss", "dns"),
 		Enhanced:   b(s, "enhanced", false),
 		Insecure:   b(s, "insecure", true),
@@ -218,8 +226,15 @@ func readProfile(s *uci.Section) Profile {
 	if !p.UsePayload {
 		p.Enhanced = false
 	}
+	if p.Type == "zivpn" {
+		p.UsePayload, p.UseTLS, p.UseDNS, p.Enhanced, p.Proxy, p.UDPGW = false, false, false, false, "", 0
+	}
 	p.Mode = p.Label()
-	p.Port = n(s, "port", DefaultPort(p.UseTLS, p.UsePayload), 1, 65535)
+	def := DefaultPort(p.UseTLS, p.UsePayload)
+	if p.Type == "zivpn" {
+		def = 5667
+	}
+	p.Port = n(s, "port", def, 1, 65535)
 	if p.UA == "" {
 		p.UA = "Dalvik/2.1.0 (Linux; U; Android 13)"
 	}
@@ -237,6 +252,9 @@ func DefaultPort(useTLS, usePayload bool) int {
 }
 
 func (p Profile) Label() string {
+	if p.Type == "zivpn" {
+		return "ZiVPN (UDP)"
+	}
 	l := "SSH"
 	if !p.UsePayload && !p.UseTLS && !p.UseDNS {
 		return "SSH Direct"
@@ -257,6 +275,15 @@ func (p Profile) Label() string {
 }
 
 func (p Profile) Validate() error {
+	if p.Type == "zivpn" {
+		if p.Host == "" {
+			return fmt.Errorf("profile %q: server host is empty", p.Name)
+		}
+		if p.Pass == "" {
+			return fmt.Errorf("profile %q: ZiVPN password is empty", p.Name)
+		}
+		return nil
+	}
 	if p.Host == "" && !p.UseDNS {
 		return fmt.Errorf("profile %q: server host is empty", p.Name)
 	}

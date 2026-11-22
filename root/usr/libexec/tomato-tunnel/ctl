@@ -31,6 +31,43 @@ case "$1" in
 	version)
 		"$BIN" version
 		;;
+	switch)
+		case "$2" in ''|*[!A-Za-z0-9_]*) echo "bad profile"; exit 1 ;; esac
+		[ "$(uci -q get "tomato-tunnel.$2")" = profile ] || { echo "profile not found"; exit 1; }
+		uci set tomato-tunnel.main.profile="$2"
+		uci commit tomato-tunnel
+		if running; then
+			echo "switch $2" >> "$RUN/cmd"
+			kill -USR2 "$pid"
+			echo switching
+		else
+			echo selected
+		fi
+		;;
+	policy)
+		case "$2" in manual|fallback|auto) ;; *) echo "bad policy"; exit 1 ;; esac
+		uci set tomato-tunnel.main.policy="$2"
+		if [ "$2" = manual ]; then uci set tomato-tunnel.main.failover=0; else uci set tomato-tunnel.main.failover=1; fi
+		uci commit tomato-tunnel
+		if running; then
+			echo "policy $2" >> "$RUN/cmd"
+			kill -USR2 "$pid"
+		fi
+		echo ok
+		;;
+	cancel-switch)
+		if running; then
+			echo cancel >> "$RUN/cmd"
+			kill -USR2 "$pid"
+		fi
+		echo ok
+		;;
+	latency)
+		"$BIN" latency
+		;;
+	latency-cached)
+		cat "$RUN/latency.json" 2>/dev/null || echo '{}'
+		;;
 	start|stop|restart)
 		"$INIT" "$1" >/dev/null 2>&1
 		echo ok
@@ -95,7 +132,7 @@ case "$1" in
 		echo ok
 		;;
 	*)
-		echo "usage: $0 status|start|stop|restart|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|ifaces|banner-set|banner-clear" >&2
+		echo "usage: $0 status|start|stop|restart|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|ifaces|banner-set|banner-clear" >&2
 		exit 2
 		;;
 esac

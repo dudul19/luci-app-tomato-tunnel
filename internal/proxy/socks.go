@@ -17,6 +17,15 @@ type Upstream interface {
 	UDPGWPort() int
 }
 
+type UDPRelay interface {
+	Send(dst *net.UDPAddr, data []byte) error
+	Close()
+}
+
+type NativeUDP interface {
+	NativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (UDPRelay, bool, error)
+}
+
 type Socks struct {
 	Addr string
 	Up   Upstream
@@ -155,11 +164,9 @@ func (s *Socks) udpAssociate(ctrl net.Conn) {
 	ctrl.Write(rep)
 	ctrl.SetDeadline(time.Time{})
 
-	gw := &UDPGW{Up: s.Up, Log: s.Log}
-	defer gw.Close()
 	var client *net.UDPAddr
 	var cmu sync.Mutex
-	gw.OnPacket = func(src *net.UDPAddr, data []byte) {
+	onPacket := func(src *net.UDPAddr, data []byte) {
 		cmu.Lock()
 		dst := client
 		cmu.Unlock()
@@ -177,6 +184,21 @@ func (s *Socks) udpAssociate(ctrl net.Conn) {
 		h = binary.BigEndian.AppendUint16(h, uint16(src.Port))
 		pc.WriteToUDP(append(h, data...), dst)
 	}
+	var gw UDPRelay
+	if nu, ok := s.Up.(NativeUDP); ok {
+		r, native, err := nu.NativeUDP(onPacket)
+		if native {
+			if err != nil {
+				s.Log.Debugf("udp", "%v", err)
+				return
+			}
+			gw = r
+		}
+	}
+	if gw == nil {
+		gw = &UDPGW{Up: s.Up, Log: s.Log, OnPacket: onPacket}
+	}
+	defer gw.Close()
 
 	go func() {
 		io.Copy(io.Discard, ctrl)

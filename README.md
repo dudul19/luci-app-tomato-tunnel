@@ -21,6 +21,7 @@ Screenshot taken on ImmortalWrt with the footstrap theme. Public IP and ISP are 
 | SSH + Payload + TLS + Enhanced | Same, with the payload split |
 | SSH + SlowDNS | SSH carried over DNS (dnstt) |
 | SSH + Payload + SlowDNS | Payload sent through the SlowDNS stream |
+| ZiVPN (UDP) | ZiVPN app protocol (Hysteria2 over QUIC). Carries TCP and UDP, only host, port and password needed |
 
 Any other combination can be set with "Custom combination" in the account form.
 
@@ -36,7 +37,15 @@ Other features:
   (redirect), or just opens a SOCKS5 port for OpenClash or PassWall.
 - DNS through the tunnel. dnsmasq is pointed at it while connected and
   restored when you stop.
-- Ping check, auto reconnect, failover to the next account, optional modem restart.
+- Dashboard with live download/upload speed, a 60-second traffic chart, ping,
+  public IP and every profile with its latency.
+- Switch profiles from the Dashboard without Stop and Start. The current tunnel
+  keeps working until the new profile is connected; if it fails, nothing changes.
+- Profile selection: Manual, Fallback (next profile after 3 failed reconnects)
+  or Auto (moves to a profile at least 20 ms faster, pinged every 5 minutes).
+- Latency test like OpenClash: TCP ping to the server (or remote proxy) port,
+  or one DNS query through the resolver for SlowDNS. No SSH login needed.
+- Ping check, auto reconnect, optional modem restart.
 - 1 to 4 parallel SSH sessions.
 - Updates from GitHub Releases inside LuCI, checked with SHA256. Settings are kept.
 - Uses the standard LuCI layout, so it follows any theme.
@@ -122,7 +131,7 @@ offered on the Beta channel.
 | `cmd/tomato-tunnel` | daemon and command line (`run`, `test`, `update`) |
 | `internal/tunnel` | payload, TLS, SlowDNS, SSH and session pool |
 | `internal/proxy` | SOCKS5 with UDP over UDPGW, transparent redirect, DNS forwarder |
-| `internal/daemon` | reconnect, ping check, failover and status |
+| `internal/daemon` | reconnect, ping check, live profile switch, latency test and status |
 | `root/` | OpenWrt files: init script, network script, LuCI page |
 
 ## Credits
@@ -134,6 +143,7 @@ Thanks to:
 - [wegare](https://github.com/wegare123/stl) for stl, the SSH injector for OpenWrt that started the idea
 - [heiher](https://github.com/heiher/hev-socks5-tunnel) for hev-socks5-tunnel
 - [David Fifield](https://www.bamsoftware.com/software/dnstt/) for dnstt (SlowDNS)
+- [Hysteria](https://github.com/apernet/hysteria) (apernet, MIT) for the QUIC core behind ZiVPN, in `third_party/hysteria-core`
 - The Go team for golang.org/x/crypto/ssh
 - OpenWrt and ImmortalWrt
 - HTTP Custom for the payload modes

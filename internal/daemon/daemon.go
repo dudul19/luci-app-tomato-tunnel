@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -31,6 +32,7 @@ var (
 	RunDir     = envOr("TT_RUNDIR", "/var/run/tomato-tunnel")
 	StatusFile = RunDir + "/status.json"
 	LogFile    = RunDir + "/tunnel.log"
+	CmdFile    = RunDir + "/cmd"
 	NetScript  = envOr("TT_NETSCRIPT", "/usr/libexec/tomato-tunnel/net.sh")
 )
 
@@ -46,38 +48,49 @@ func envOr(k, def string) string {
 var Version = "dev"
 
 type Status struct {
-	State       string `json:"state"`
-	Message     string `json:"message,omitempty"`
-	Profile     string `json:"profile"`
-	ProfileName string `json:"profile_name"`
-	Mode        string `json:"mode"`
-	Enhanced    bool   `json:"enhanced"`
-	NetMode     string `json:"net_mode"`
-	Iface       string `json:"iface,omitempty"`
-	Since       int64  `json:"since,omitempty"`
-	PublicIP    string `json:"public_ip,omitempty"`
-	Country     string `json:"country,omitempty"`
-	ISP         string `json:"isp,omitempty"`
-	PingMS      int64  `json:"ping_ms"`
-	RX          int64  `json:"rx"`
-	TX          int64  `json:"tx"`
-	RateRX      int64  `json:"rate_rx"`
-	RateTX      int64  `json:"rate_tx"`
-	Sessions    int    `json:"sessions"`
-	Reconnects  int    `json:"reconnects_today"`
-	Banner      string `json:"banner,omitempty"`
-	ServerMsg   string `json:"server_msg,omitempty"`
-	Kex         string `json:"kex,omitempty"`
-	Legacy      bool   `json:"legacy"`
-	Version     string `json:"version"`
-	Updated     int64  `json:"updated"`
-	PID         int    `json:"pid"`
+	State       string           `json:"state"`
+	Message     string           `json:"message,omitempty"`
+	Profile     string           `json:"profile"`
+	ProfileName string           `json:"profile_name"`
+	Mode        string           `json:"mode"`
+	Enhanced    bool             `json:"enhanced"`
+	NetMode     string           `json:"net_mode"`
+	Iface       string           `json:"iface,omitempty"`
+	Since       int64            `json:"since,omitempty"`
+	PublicIP    string           `json:"public_ip,omitempty"`
+	Country     string           `json:"country,omitempty"`
+	ISP         string           `json:"isp,omitempty"`
+	PingMS      int64            `json:"ping_ms"`
+	RX          int64            `json:"rx"`
+	TX          int64            `json:"tx"`
+	RateRX      int64            `json:"rate_rx"`
+	RateTX      int64            `json:"rate_tx"`
+	Sessions    int              `json:"sessions"`
+	Reconnects  int              `json:"reconnects_today"`
+	Policy      string           `json:"policy"`
+	Switching   string           `json:"switching,omitempty"`
+	LoginFailed map[string]int64 `json:"login_failed,omitempty"`
+	Banner      string           `json:"banner,omitempty"`
+	ServerMsg   string           `json:"server_msg,omitempty"`
+	Kex         string           `json:"kex,omitempty"`
+	Legacy      bool             `json:"legacy"`
+	Version     string           `json:"version"`
+	Updated     int64            `json:"updated"`
+	PID         int              `json:"pid"`
 }
 
 type Daemon struct {
-	cfg  *config.Config
-	log  *logx.Logger
-	pool atomic.Pointer[tunnel.Pool]
+	cfg     *config.Config
+	cfgPath string
+	log     *logx.Logger
+	pool    atomic.Pointer[tunnel.Pool]
+
+	pol       atomic.Value
+	switchCh  chan string
+	autoKick  chan struct{}
+	autoRes   chan LatencyReport
+	measuring atomic.Bool
+	swCancel  context.CancelFunc
 
 	mu     sync.Mutex
 	wmu    sync.Mutex
@@ -101,6 +114,18 @@ func (d *Daemon) Dial(addr string) (net.Conn, error) {
 	return p.Dial(addr)
 }
 
+func (d *Daemon) NativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
+	p := d.pool.Load()
+	if p == nil || !p.IsZivpn() {
+		return nil, false, nil
+	}
+	u, err := p.ZivpnUDP(onPacket)
+	if err != nil {
+		return nil, true, err
+	}
+	return u, true, nil
+}
+
 func (d *Daemon) UDPGWPort() int {
 	if p := d.pool.Load(); p != nil {
 		return p.P.UDPGW
@@ -117,8 +142,10 @@ func Run(cfgPath string, foreground bool) error {
 		return err
 	}
 	log.SetLevel(cfg.Main.LogLevel)
-	d := &Daemon{cfg: cfg, log: log}
-	d.st = Status{State: "starting", NetMode: cfg.Main.NetMode, Version: Version, PID: os.Getpid()}
+	d := &Daemon{cfg: cfg, cfgPath: cfgPath, log: log,
+		switchCh: make(chan string, 1), autoKick: make(chan struct{}, 1), autoRes: make(chan LatencyReport, 1)}
+	d.st = Status{State: "starting", NetMode: cfg.Main.NetMode, Policy: cfg.Main.Policy, Version: Version, PID: os.Getpid()}
+	os.Remove(CmdFile)
 	d.writeStatus()
 	log.Infof("start", "Starting Tomato Tunnel %s", Version)
 
@@ -130,11 +157,15 @@ func Run(cfgPath string, foreground bool) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sig := make(chan os.Signal, 4)
-	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT, syscall.SIGUSR1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT, syscall.SIGUSR1, syscall.SIGUSR2)
 	go func() {
 		for s := range sig {
 			if s == syscall.SIGUSR1 {
 				log.Clear()
+				continue
+			}
+			if s == syscall.SIGUSR2 {
+				d.handleCmds(ctx)
 				continue
 			}
 			log.Infof("stop", "Stopping")
@@ -185,101 +216,307 @@ func (d *Daemon) startServices() error {
 	return nil
 }
 
+func (d *Daemon) policy() string {
+	if v, ok := d.pol.Load().(string); ok && v != "" {
+		return v
+	}
+	return d.cfg.Main.Policy
+}
+
+func (d *Daemon) reorder(id string) []config.Profile {
+	c := *d.cfg
+	c.Main.Profile = id
+	return c.Ordered()
+}
+
+func (d *Daemon) waitOrSwitch(ctx context.Context, dur time.Duration) string {
+	select {
+	case <-ctx.Done():
+	case <-time.After(dur):
+	case id := <-d.switchCh:
+		return id
+	}
+	return ""
+}
+
+func (d *Daemon) takeSwitch(id string) ([]config.Profile, bool) {
+	if c, err := config.Load(d.cfgPath); err == nil && len(c.Profiles) > 0 {
+		d.cfg.Profiles = c.Profiles
+	}
+	p, ok := d.cfg.Find(id)
+	if !ok {
+		d.log.Errorf("switch", "Profile %s not found", id)
+		return nil, false
+	}
+	return d.reorder(ProfileKey(p)), true
+}
+
+func (d *Daemon) activate(pool *tunnel.Pool, countReconnect bool) {
+	p := pool.P
+	d.pool.Store(pool)
+	d.mu.Lock()
+	d.rxBase, d.txBase = 0, 0
+	if countReconnect {
+		d.countReconnect()
+	}
+	d.st.State, d.st.Message, d.st.Switching = "connected", "", ""
+	d.st.Profile, d.st.ProfileName, d.st.Mode, d.st.Enhanced = ProfileKey(p), p.Name, p.Mode, p.Enhanced
+	d.st.PublicIP, d.st.Country, d.st.ISP, d.st.PingMS = "", "", "", 0
+	d.st.Since = time.Now().Unix()
+	d.st.Banner, d.st.Kex, d.st.Legacy = pool.Info.Banner, pool.Info.Kex, pool.Info.Legacy
+	d.st.ServerMsg = pool.Info.ServerMsg
+	delete(d.st.LoginFailed, ProfileKey(p))
+	d.mu.Unlock()
+	d.writeStatus()
+}
+
+func (d *Daemon) markLogin(key string, failed bool) {
+	d.set(func(s *Status) {
+		if !failed {
+			delete(s.LoginFailed, key)
+			return
+		}
+		if s.LoginFailed == nil {
+			s.LoginFailed = map[string]int64{}
+		}
+		s.LoginFailed[key] = time.Now().Unix()
+	})
+}
+
+func (d *Daemon) loginFailed(key string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	_, ok := d.st.LoginFailed[key]
+	return ok
+}
+
 func (d *Daemon) supervise(ctx context.Context) {
 	m := d.cfg.Main
 	profiles := d.cfg.Ordered()
-	if !m.Failover {
-		profiles = profiles[:1]
-	}
 	pi := 0
 	fails := 0
 	rounds := 0
 	first := true
+	var pool *tunnel.Pool
 	for ctx.Err() == nil {
-		p := profiles[pi%len(profiles)]
-		if err := p.Validate(); err != nil {
-			d.log.Errorf("config", "%v", err)
-			d.set(func(s *Status) { s.State, s.Message = "failed", err.Error() })
-			pi++
-			if pi%len(profiles) == 0 {
-				sleepCtx(ctx, 30*time.Second)
+		if pool == nil {
+			p := profiles[pi%len(profiles)]
+			if err := p.Validate(); err != nil {
+				d.log.Errorf("config", "%v", err)
+				d.set(func(s *Status) { s.State, s.Message = "failed", err.Error() })
+				wait := time.Duration(0)
+				if d.policy() == "manual" || len(profiles) == 1 {
+					wait = 30 * time.Second
+				} else {
+					pi++
+					if pi%len(profiles) == 0 {
+						wait = 30 * time.Second
+					}
+				}
+				if wait > 0 {
+					if id := d.waitOrSwitch(ctx, wait); id != "" {
+						if o, ok := d.takeSwitch(id); ok {
+							d.log.Infof("switch", "Switching to %s", o[0].Name)
+							profiles, pi, fails, rounds = o, 0, 0, 0
+						}
+					}
+				}
+				continue
 			}
-			continue
-		}
-		state := "connecting"
-		if !first {
-			state = "reconnecting"
-		}
-		d.set(func(s *Status) {
-			s.State, s.Message = state, ""
-			s.Profile, s.ProfileName, s.Mode, s.Enhanced = p.ID, p.Name, p.Mode, p.Enhanced
-			s.PublicIP, s.Country, s.ISP, s.PingMS = "", "", "", 0
-		})
+			state := "connecting"
+			if !first {
+				state = "reconnecting"
+			}
+			d.set(func(s *Status) {
+				s.State, s.Message, s.Switching = state, "", ""
+				s.Profile, s.ProfileName, s.Mode, s.Enhanced = ProfileKey(p), p.Name, p.Mode, p.Enhanced
+				s.PublicIP, s.Country, s.ISP, s.PingMS = "", "", "", 0
+			})
 
-		pool := tunnel.NewPool(p, m.SSHCompat, m.WanIface, d.log)
-		cctx, ccancel := context.WithTimeout(ctx, 60*time.Second)
-		err := pool.Connect(cctx, m.Sessions)
-		ccancel()
-		if err != nil {
-			pool.Close()
-			if ctx.Err() != nil {
-				return
-			}
-			d.log.Errorf("connect", "Connection failed: %v", err)
-			d.set(func(s *Status) { s.Message = err.Error() })
-			fails++
-			if fails >= 3 {
-				fails = 0
-				pi++
-				if pi%len(profiles) == 0 {
-					rounds++
-					if m.RestartModem && m.ModemIface != "" {
-						d.log.Warnf("modem", "Every profile failed, restarting modem %s", m.ModemIface)
+			np := tunnel.NewPool(p, m.SSHCompat, m.WanIface, d.log)
+			cctx, ccancel := context.WithTimeout(ctx, 60*time.Second)
+			err := np.Connect(cctx, m.Sessions)
+			ccancel()
+			if err != nil {
+				np.Close()
+				if ctx.Err() != nil {
+					return
+				}
+				d.log.Errorf("connect", "Connection failed: %v", err)
+				d.set(func(s *Status) { s.Message = err.Error() })
+				if errors.Is(err, tunnel.ErrAuth) {
+					d.markLogin(ProfileKey(p), true)
+				}
+				fails++
+				authFail := errors.Is(err, tunnel.ErrAuth) && d.policy() != "manual" && len(profiles) > 1
+				if authFail {
+					fails = 3
+				}
+				if fails >= 3 {
+					fails = 0
+					if d.policy() != "manual" {
+						pi++
+						if pi%len(profiles) == 0 {
+							rounds++
+							if m.RestartModem && m.ModemIface != "" {
+								d.log.Warnf("modem", "Every profile failed, restarting modem %s", m.ModemIface)
+								exec.Command("ifup", m.ModemIface).Run()
+								sleepCtx(ctx, 20*time.Second)
+							}
+						}
+						if len(profiles) > 1 {
+							d.log.Warnf("failover", "Switching to profile %s", profiles[pi%len(profiles)].Name)
+						}
+					} else if m.RestartModem && m.ModemIface != "" {
+						rounds++
+						d.log.Warnf("modem", "Profile failed 3 times, restarting modem %s", m.ModemIface)
 						exec.Command("ifup", m.ModemIface).Run()
 						sleepCtx(ctx, 20*time.Second)
 					}
 				}
-				if len(profiles) > 1 {
-					d.log.Warnf("failover", "Switching to profile %s", profiles[pi%len(profiles)].Name)
+				backoff := time.Duration(2<<min(fails+rounds, 4)) * time.Second
+				if authFail && pi%len(profiles) != 0 {
+					backoff = 0
+				}
+				if id := d.waitOrSwitch(ctx, backoff); id != "" {
+					if o, ok := d.takeSwitch(id); ok {
+						d.log.Infof("switch", "Switching to %s", o[0].Name)
+						profiles, pi, fails, rounds = o, 0, 0, 0
+					}
+				}
+				continue
+			}
+			fails, rounds = 0, 0
+			pool = np
+			d.activate(pool, !first)
+			first = false
+			if !d.netUp {
+				if err := d.netSetup(); err != nil {
+					d.log.Errorf("net", "Network setup failed: %v", err)
 				}
 			}
-			backoff := time.Duration(2<<min(fails+rounds, 4)) * time.Second
-			sleepCtx(ctx, backoff)
+			go d.fetchIP(pool)
+		}
+
+		res := d.monitor(ctx, pool)
+		if res.pool != nil {
+			old := pool
+			pool = res.pool
+			profiles, pi, fails, rounds = res.order, 0, 0, 0
+			d.activate(pool, false)
+			d.log.Okf("switch", "Traffic moved to %s", pool.P.Name)
+			old.Close()
+			d.log.Infof("switch", "Closed old session %s", old.P.Name)
+			go d.fetchIP(pool)
 			continue
 		}
-		fails, rounds = 0, 0
-		d.pool.Store(pool)
-		d.mu.Lock()
-		d.rxBase, d.txBase = 0, 0
-		if !first {
-			d.countReconnect()
-		}
-		d.st.State, d.st.Message = "connected", ""
-		d.st.Since = time.Now().Unix()
-		d.st.Banner, d.st.Kex, d.st.Legacy = pool.Info.Banner, pool.Info.Kex, pool.Info.Legacy
-		d.st.ServerMsg = pool.Info.ServerMsg
-		d.mu.Unlock()
-		first = false
-
-		if !d.netUp {
-			if err := d.netSetup(); err != nil {
-				d.log.Errorf("net", "Network setup failed: %v", err)
-			}
-		}
-		go d.fetchIP(pool)
-
-		reason := d.monitor(ctx, pool)
 		d.pool.Store(nil)
 		pool.Close()
+		pool = nil
 		if ctx.Err() != nil {
 			return
 		}
-		d.log.Warnf("reconnect", "Reconnecting (%s)", reason)
-		d.set(func(s *Status) { s.State, s.Message = "reconnecting", reason })
+		if res.order != nil {
+			profiles, pi, fails, rounds = res.order, 0, 0, 0
+		}
+		d.log.Warnf("reconnect", "Reconnecting (%s)", res.reason)
+		d.set(func(s *Status) { s.State, s.Message = "reconnecting", res.reason })
 	}
 }
 
-func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) string {
+type monResult struct {
+	reason string
+	pool   *tunnel.Pool
+	order  []config.Profile
+}
+
+func (d *Daemon) trySwitch(ctx context.Context, cur *tunnel.Pool, id, why string) (*tunnel.Pool, []config.Profile, error) {
+	order, ok := d.takeSwitch(id)
+	if !ok {
+		return nil, nil, fmt.Errorf("profile not found")
+	}
+	p := order[0]
+	if ProfileKey(p) == ProfileKey(cur.P) && p.Name == cur.P.Name {
+		d.log.Infof("switch", "%s is already active", p.Name)
+		return nil, nil, fmt.Errorf("already active")
+	}
+	if err := p.Validate(); err != nil {
+		d.log.Errorf("switch", "%v", err)
+		return nil, nil, err
+	}
+	m := d.cfg.Main
+	d.log.Warnf("switch", "%sSwitching to %s, %s stays up until it is ready", why, p.Name, cur.P.Name)
+	d.set(func(s *Status) { s.Switching = p.Name })
+	sctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	d.mu.Lock()
+	d.swCancel = cancel
+	d.mu.Unlock()
+	t0 := time.Now()
+	np := tunnel.NewPool(p, m.SSHCompat, m.WanIface, d.log)
+	err := np.Connect(sctx, m.Sessions)
+	cerr := sctx.Err()
+	cancel()
+	d.mu.Lock()
+	d.swCancel = nil
+	d.mu.Unlock()
+	if err != nil {
+		np.Close()
+		if ctx.Err() == nil && cerr == context.Canceled {
+			d.log.Warnf("switch", "Switch to %s cancelled, staying on %s", p.Name, cur.P.Name)
+		} else {
+			if errors.Is(err, tunnel.ErrAuth) {
+				d.markLogin(ProfileKey(p), true)
+			}
+			d.log.Errorf("switch", "%s failed: %s", p.Name, shortErr(err))
+			d.log.Okf("switch", "Staying on %s, nothing was cut", cur.P.Name)
+		}
+		d.set(func(s *Status) { s.Switching = "" })
+		return nil, nil, err
+	}
+	d.log.Okf("switch", "Connected %s in %.1f s", p.Name, time.Since(t0).Seconds())
+	return np, order, nil
+}
+
+func (d *Daemon) startMeasure(ctx context.Context) {
+	if !d.measuring.CompareAndSwap(false, true) {
+		return
+	}
+	profiles := append([]config.Profile(nil), d.cfg.Profiles...)
+	m := d.cfg.Main
+	go func() {
+		defer d.measuring.Store(false)
+		rep := Measure(ctx, m, profiles, 15*time.Second)
+		SaveLatency(rep)
+		select {
+		case d.autoRes <- rep:
+		default:
+		}
+	}()
+}
+
+func (d *Daemon) bestOf(rep LatencyReport, cur config.Profile) (string, int64, int64) {
+	curMS := int64(-1)
+	if r, ok := rep.Results[ProfileKey(cur)]; ok {
+		curMS = r.MS
+	}
+	best, bestMS := "", int64(-1)
+	for _, p := range d.cfg.Profiles {
+		k := ProfileKey(p)
+		if k == ProfileKey(cur) {
+			continue
+		}
+		r, ok := rep.Results[k]
+		if !ok || r.MS < 0 || d.loginFailed(k) {
+			continue
+		}
+		if bestMS < 0 || r.MS < bestMS {
+			best, bestMS = k, r.MS
+		}
+	}
+	return best, bestMS, curMS
+}
+
+func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 	m := d.cfg.Main
 	t := time.NewTicker(time.Duration(m.CheckInterval) * time.Second)
 	defer t.Stop()
@@ -290,6 +527,8 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) string {
 	}
 	stats := time.NewTicker(5 * time.Minute)
 	defer stats.Stop()
+	auto := time.NewTimer(30 * time.Second)
+	defer auto.Stop()
 	for {
 		select {
 		case <-stats.C:
@@ -298,9 +537,46 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) string {
 			d.mu.Unlock()
 			d.log.Infof("stats", "Traffic: download %s, upload %s", human(st.RX), human(st.TX))
 		case <-ctx.Done():
-			return "stopped"
+			return monResult{reason: "stopped"}
 		case <-pool.Dead():
-			return "all SSH sessions lost"
+			return monResult{reason: "all SSH sessions lost"}
+		case id := <-d.switchCh:
+			if np, order, err := d.trySwitch(ctx, pool, id, ""); err == nil {
+				return monResult{pool: np, order: order}
+			}
+		case <-d.autoKick:
+			if d.policy() == "auto" {
+				d.startMeasure(ctx)
+			}
+		case <-auto.C:
+			auto.Reset(AutoInterval)
+			if d.policy() == "auto" {
+				d.startMeasure(ctx)
+			}
+		case rep := <-d.autoRes:
+			for k, r := range rep.Results {
+				if r.Auth {
+					d.markLogin(k, true)
+				}
+			}
+			if d.policy() != "auto" {
+				continue
+			}
+			best, bestMS, curMS := d.bestOf(rep, pool.P)
+			if best == "" {
+				continue
+			}
+			if curMS >= 0 && bestMS+AutoMargin >= curMS {
+				d.log.Infof("auto", "Auto: %s is still the fastest (%d ms)", pool.P.Name, curMS)
+				continue
+			}
+			why := fmt.Sprintf("Auto: faster profile found (%d ms vs %d ms). ", bestMS, curMS)
+			if curMS < 0 {
+				why = "Auto: current profile failed the latency test. "
+			}
+			if np, order, err := d.trySwitch(ctx, pool, best, why); err == nil {
+				return monResult{pool: np, order: order}
+			}
 		case <-t.C:
 			d.ensureHev()
 			ms, err := check(pool, m.CheckURL)
@@ -308,13 +584,67 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) string {
 				failed++
 				d.log.Warnf("ping", "Ping %s failed: %s (%d/%d)", host, shortErr(err), failed, m.CheckFail)
 				if failed >= m.CheckFail {
-					return fmt.Sprintf("check failed %d×", failed)
+					return monResult{reason: fmt.Sprintf("check failed %d×", failed)}
 				}
 				continue
 			}
 			d.log.Okf("ping", "Ping %s %d ms OK", host, ms)
 			failed = 0
 			d.set(func(s *Status) { s.PingMS = ms })
+		}
+	}
+}
+
+const (
+	AutoInterval = 5 * time.Minute
+	AutoMargin   = 20
+)
+
+func (d *Daemon) handleCmds(ctx context.Context) {
+	work := CmdFile + ".work"
+	if os.Rename(CmdFile, work) != nil {
+		return
+	}
+	b, _ := os.ReadFile(work)
+	os.Remove(work)
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) == 0 {
+			continue
+		}
+		switch f[0] {
+		case "switch":
+			if len(f) < 2 {
+				continue
+			}
+			select {
+			case <-d.switchCh:
+			default:
+			}
+			d.switchCh <- f[1]
+		case "policy":
+			if len(f) < 2 {
+				continue
+			}
+			switch f[1] {
+			case "manual", "fallback", "auto":
+				d.pol.Store(f[1])
+				d.set(func(s *Status) { s.Policy = f[1] })
+				d.log.Infof("policy", "Profile selection: %s", f[1])
+				if f[1] == "auto" {
+					select {
+					case d.autoKick <- struct{}{}:
+					default:
+					}
+				}
+			}
+		case "cancel":
+			d.mu.Lock()
+			c := d.swCancel
+			d.mu.Unlock()
+			if c != nil {
+				c()
+			}
 		}
 	}
 }

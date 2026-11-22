@@ -27,6 +27,7 @@ func usage() {
 usage:
   tomato-tunnel run [-c config] [-f]     run the tunnel (procd starts this)
   tomato-tunnel test <profile> [-c ..]   connect once, print JSON, disconnect
+  tomato-tunnel latency [-c ..]          test every profile, print JSON
   tomato-tunnel update check             check GitHub for a newer release (JSON)
   tomato-tunnel update install           download, verify and install it
   tomato-tunnel version
@@ -57,6 +58,19 @@ func main() {
 		id := os.Args[2]
 		fs.Parse(os.Args[3:])
 		os.Exit(test(*cfg, id))
+	case "latency":
+		fs := flag.NewFlagSet("latency", flag.ExitOnError)
+		cfg := fs.String("c", config.DefaultPath, "config file")
+		fs.Parse(os.Args[2:])
+		c, err := config.Load(*cfg)
+		if err != nil {
+			fmt.Printf("{\"error\":%q}\n", err.Error())
+			os.Exit(1)
+		}
+		rep := daemon.Measure(context.Background(), c.Main, c.Profiles, 15*time.Second)
+		daemon.SaveLatency(rep)
+		b, _ := json.Marshal(rep)
+		fmt.Println(string(b))
 	case "update":
 		if len(os.Args) < 3 {
 			usage()
