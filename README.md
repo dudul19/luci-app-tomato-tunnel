@@ -1,3 +1,16 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/lockup-dark.svg">
+    <img src="docs/logo/lockup.svg" alt="Tomato Tunnel" width="440">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://github.com/dudul19/tomato-tunnel/releases/latest"><img src="https://img.shields.io/github/v/release/dudul19/tomato-tunnel?color=ec185d" alt="release"></a>
+  <img src="https://img.shields.io/badge/license-GPL--3.0-555" alt="license GPL-3.0">
+  <img src="https://img.shields.io/badge/OpenWrt%20%2F%20ImmortalWrt-555" alt="OpenWrt / ImmortalWrt">
+</p>
+
 # Tomato Tunnel
 
 SSH and ZiVPN tunnel client for OpenWrt with a LuCI page. For SSH it works like

@@ -392,3 +392,12 @@ a.tt-thxc:focus-visible { outline: 2px solid #2b8fd6; outline-offset: 2px; }
 	.tt-plist .tt-pb .cbi-button { min-height: 40px; }
 	.tt-dragh { display: none; }
 }
+.tt-banner .tt-name { display: block; line-height: 0; }
+.tt-banner .tt-bt svg.tt-wm { position: static; display: block; height: 40px; width: auto; }
+.tt-authw { display: block; color: inherit; line-height: 0; margin: 0 0 .25em; }
+.tt-authw .tt-wm { display: block; height: 46px; width: auto; }
+@media (max-width: 760px) {
+	.tt-banner .tt-bt svg.tt-wm { height: 34px; }
+}
+svg.tt-wm { background: transparent !important; }
+.tt-authw svg.tt-lock { height: 58px; margin: 0 0 .2em; }
