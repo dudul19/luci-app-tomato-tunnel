@@ -8,7 +8,7 @@ ZiVPN works like the ZiVPN app: host, port and password only.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
-Dashboard of v1.1.0 on ImmortalWrt with the Argon theme. Public IP, ISP and server domains are blurred.
+Dashboard of v1.2.0 on ImmortalWrt with the Footstrap theme. Public IP, ISP and server domains are blurred.
 
 ## Connection types
 
