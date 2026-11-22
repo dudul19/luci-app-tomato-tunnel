@@ -1,7 +1,8 @@
 # Tomato Tunnel
 
-SSH tunnel client for OpenWrt with a LuCI page. It works like HTTP Custom:
-SSH is the base, and you add the layers you need on top of it.
+SSH and ZiVPN tunnel client for OpenWrt with a LuCI page. For SSH it works like
+HTTP Custom: SSH is the base, and you add the layers you need on top of it.
+ZiVPN (UDP) works like the ZiVPN app: host, port and password only.
 
 ## Preview
 

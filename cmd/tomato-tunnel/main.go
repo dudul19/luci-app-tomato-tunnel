@@ -22,7 +22,7 @@ import (
 var version = "dev"
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Tomato Tunnel %s — SSH tunnel for OpenWrt · made by @dudulrealnofek
+	fmt.Fprintf(os.Stderr, `Tomato Tunnel %s — SSH and ZiVPN tunnel for OpenWrt · made by @dudulrealnofek
 
 usage:
   tomato-tunnel run [-c config] [-f]     run the tunnel (procd starts this)

@@ -8,7 +8,7 @@ PKG=luci-app-tomato-tunnel
 ARCHS="${ARCHS:-aarch64_generic aarch64_cortex-a53 aarch64_cortex-a72}"
 DEPENDS="libc kmod-tun ip-full ca-bundle luci-base"
 HEV=third_party/hev-socks5-tunnel/hev-socks5-tunnel-linux-arm64
-DESC="Tomato Tunnel: SSH tunnel client (Direct, Payload, SSL/SNI, WebSocket, WebSocket-TLS, SlowDNS, Enhanced payload) with LuCI page. Made by @dudulrealnofek."
+DESC="Tomato Tunnel: SSH tunnel (Direct, Payload, SSL/SNI, WebSocket, WebSocket-TLS, SlowDNS, Enhanced payload) and ZiVPN (UDP) client with LuCI page. Made by @dudulrealnofek."
 URL="https://github.com/dudul19/tomato-tunnel"
 APK="${APK:-$(ls ../king3399-immortalwrt/immortalwrt-imagebuilder-*/staging_dir/host/bin/apk 2>/dev/null | head -1)}"
 

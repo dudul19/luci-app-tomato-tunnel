@@ -219,7 +219,7 @@ return view.extend({
 		var root = E('div', { 'class': 'cbi-map tt-wrap' }, [
 			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-6' }),
 			E('h2', { 'name': 'content' }, 'Tomato Tunnel'),
-			E('div', { 'class': 'cbi-map-descr' }, [ 'SSH tunnel: Direct, Payload, SSL/SNI, WebSocket, SlowDNS and Enhanced payload. Made by ',
+			E('div', { 'class': 'cbi-map-descr' }, [ 'SSH tunnel (Direct, Payload, SSL/SNI, WebSocket, SlowDNS, Enhanced payload) and ZiVPN (UDP). Made by ',
 				E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, '@dudulrealnofek'), '.' ]),
 			this.bannerEl = E('div'),
 			this.tabsEl,
