@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -135,7 +136,7 @@ func PkgManager() (string, []string) {
 		for _, a := range strings.Fields(string(b)) {
 			archs = append(archs, a)
 		}
-		return "apk", append(archs, "aarch64_generic")
+		return "apk", append(archs, fallbackArch())
 	}
 	out, _ := exec.Command("opkg", "print-architecture").Output()
 	type pa struct {
@@ -162,7 +163,7 @@ func PkgManager() (string, []string) {
 	for _, x := range list {
 		archs = append(archs, x.name)
 	}
-	return "opkg", append(archs, "aarch64_generic")
+	return "opkg", append(archs, fallbackArch())
 }
 
 func Install(cl *http.Client, r *Result, w io.Writer) error {
@@ -255,4 +256,18 @@ func download(cl *http.Client, url, dst string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fallbackArch() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "x86_64"
+	case "mipsle":
+		return "mipsel_24kc"
+	case "mips":
+		return "mips_24kc"
+	case "arm":
+		return "arm_cortex-a7"
+	}
+	return "aarch64_generic"
 }

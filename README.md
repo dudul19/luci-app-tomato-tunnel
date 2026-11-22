@@ -46,15 +46,42 @@ Other features:
   or Auto (moves to a profile at least 20 ms faster, pinged every 5 minutes).
 - Latency test like OpenClash: TCP ping to the server (or remote proxy) port,
   or one DNS query through the resolver for SlowDNS. No SSH login needed.
-- Ping check, auto reconnect, optional modem restart.
+- Ping check and auto reconnect.
+- Change IP: restart the interface, airplane mode by AT command, ModemManager,
+  HiLink / Orbit modem or an Android phone over ADB. After failed connects, on a
+  schedule or from a button on the Dashboard. Can keep trying until the IP starts
+  with a prefix you choose.
+- Usage tab: traffic per day, per account and per device (TUN mode), monthly
+  totals, a quota warning and the day your package renews.
+- Expiry date per account: a reminder before it ends, and expired accounts are
+  skipped by Auto and Fallback.
+- Paste an account message to import it, share one account as a link, or back up
+  and restore every account as a JSON file.
+- Reorder accounts by dragging them, delete them straight from the list.
+- Six built-in banners (Tomato is the default) or your own image.
 - 1 to 4 parallel SSH sessions.
 - Updates from GitHub Releases inside LuCI, checked with SHA256. Settings are kept.
 - Uses the standard LuCI layout, so it follows any theme.
 
 ## Requirements
 
-- aarch64 router (`aarch64_generic`, `aarch64_cortex-a53` or `aarch64_cortex-a72`)
-- OpenWrt or ImmortalWrt 23.05 or newer
+- OpenWrt or ImmortalWrt 23.05 or newer on one of these architectures:
+
+| Architecture | Typical devices |
+|---|---|
+| `aarch64_generic` | Amlogic / Rockchip STBs and boards, most 64-bit ARM |
+| `aarch64_cortex-a53` | Raspberry Pi 3/4 (64-bit), MediaTek Filogic MT7981/MT7986 |
+| `aarch64_cortex-a72` | Raspberry Pi 4 (bcm2711), NanoPi R4S |
+| `arm_cortex-a7`, `arm_cortex-a7_neon-vfpv4` | Allwinner H3, Qualcomm IPQ40xx |
+| `arm_cortex-a9`, `arm_cortex-a9_vfpv3-d16` | Marvell mvebu (Linksys WRT) |
+| `arm_cortex-a15_neon-vfpv4` | Qualcomm IPQ806x |
+| `mipsel_24kc` | MediaTek MT7621 / MT7628 |
+| `mips_24kc` | Atheros / QCA ath79 |
+| `x86_64` | PCs, mini PCs, virtual machines |
+
+- About 13 MB of free flash and 64 MB of free RAM. Routers with 16 MB of flash
+  are too small unless they use extroot or USB storage. Only aarch64 has been
+  tested on a real router so far.
 - These packages, installed automatically from the official repo:
   `kmod-tun ip-full ca-bundle luci-base`
 - hev-socks5-tunnel 2.17.1 (static, MIT) is bundled in the package, so it also
@@ -69,7 +96,7 @@ OpenWrt 25.x and newer (apk):
 ```sh
 cat /etc/apk/arch
 apk update
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.0.0_aarch64_generic.apk
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.2.0_aarch64_generic.apk
 ```
 
 OpenWrt 23.05 and 24.10 (opkg):
@@ -77,7 +104,7 @@ OpenWrt 23.05 and 24.10 (opkg):
 ```sh
 opkg print-architecture
 opkg update
-opkg install /tmp/luci-app-tomato-tunnel_1.0.0_aarch64_generic.ipk
+opkg install /tmp/luci-app-tomato-tunnel_1.2.0_aarch64_generic.ipk
 ```
 
 Open LuCI, go to Services > Tomato Tunnel, add or import an account and press
@@ -135,6 +162,8 @@ offered on the Beta channel.
 | `internal/tunnel` | payload, TLS, SlowDNS, SSH and session pool |
 | `internal/proxy` | SOCKS5 with UDP over UDPGW, transparent redirect, DNS forwarder |
 | `internal/daemon` | reconnect, ping check, live profile switch, latency test and status |
+| `internal/usage` | daily, per-account and per-device traffic statistics |
+| `internal/changeip` | Change IP methods (interface, AT, ModemManager, HiLink, ADB) |
 | `root/` | OpenWrt files: init script, network script, LuCI page |
 
 ## Credits

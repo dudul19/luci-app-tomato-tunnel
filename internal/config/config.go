@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dudul19/tomato-tunnel/internal/uci"
 )
@@ -41,6 +42,30 @@ type Main struct {
 	UpdateRepo    string
 	UpdateChannel string
 	UpdateCheck   bool
+	ExpiryWarn    int
+	UsageResetDay int
+	UsageQuotaGB  int
+	IP            ChangeIP
+}
+
+type ChangeIP struct {
+	Method     string
+	Iface      string
+	ATPort     string
+	ATOff      string
+	ATOn       string
+	MMModem    string
+	HilinkAddr string
+	HilinkUser string
+	HilinkPass string
+	ADBSerial  string
+	Wait       int
+	AfterFails bool
+	AfterN     int
+	EveryH     int
+	Button     bool
+	Prefix     []string
+	MaxTries   int
 }
 
 type Profile struct {
@@ -71,6 +96,27 @@ type Profile struct {
 	DNSPubkey  string
 	DNSType    string
 	Order      int
+	Expires    string
+}
+
+func (p Profile) ExpiryTime() (time.Time, bool) {
+	if p.Expires == "" {
+		return time.Time{}, false
+	}
+	for _, f := range []string{"2006-01-02 15:04", "2006-01-02"} {
+		if t, err := time.ParseInLocation(f, p.Expires, time.Local); err == nil {
+			if f == "2006-01-02" {
+				t = t.Add(24*time.Hour - time.Second)
+			}
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func (p Profile) Expired(now time.Time) bool {
+	t, ok := p.ExpiryTime()
+	return ok && now.After(t)
 }
 
 type Config struct {
@@ -145,6 +191,9 @@ func defaults() Main {
 		CheckURL: "http://cp.cloudflare.com/generate_204", CheckInterval: 5, CheckFail: 3,
 		Failover: true, Policy: "fallback", ModemIface: "wwan", SSHCompat: "auto", DNSMode: "tunnel", DNSServer: "1.1.1.1",
 		ManageDnsmasq: true, LogLevel: "info", UpdateRepo: "dudul19/tomato-tunnel", UpdateChannel: "stable", UpdateCheck: true,
+		ExpiryWarn: 3, UsageResetDay: 1,
+		IP: ChangeIP{Method: "none", Iface: "wwan", ATPort: "/dev/ttyUSB2", ATOff: "AT+CFUN=4", ATOn: "AT+CFUN=1", MMModem: "0",
+			HilinkAddr: "192.168.8.1", HilinkUser: "admin", Wait: 5, AfterN: 3, Button: true, MaxTries: 5},
 	}
 }
 
@@ -178,6 +227,35 @@ func readMain(m *Main, s *uci.Section) {
 	m.UpdateRepo = s.Get("update_repo", m.UpdateRepo)
 	m.UpdateChannel = oneOf(s.Get("update_channel", m.UpdateChannel), m.UpdateChannel, "stable", "beta")
 	m.UpdateCheck = b(s, "update_check", m.UpdateCheck)
+	m.ExpiryWarn = n(s, "expiry_warn", m.ExpiryWarn, 0, 60)
+	m.UsageResetDay = n(s, "usage_reset_day", m.UsageResetDay, 1, 28)
+	m.UsageQuotaGB = n(s, "usage_quota_gb", m.UsageQuotaGB, 0, 1000000)
+	ip := &m.IP
+	if m.RestartModem {
+		ip.Method, ip.AfterFails = "iface", true
+		if m.ModemIface != "" {
+			ip.Iface = m.ModemIface
+		}
+	}
+	ip.Method = oneOf(s.Get("ip_method", ip.Method), ip.Method, "none", "iface", "at", "mm", "hilink", "adb")
+	ip.Iface = s.Get("ip_iface", ip.Iface)
+	ip.ATPort = s.Get("at_port", ip.ATPort)
+	ip.ATOff = s.Get("at_off", ip.ATOff)
+	ip.ATOn = s.Get("at_on", ip.ATOn)
+	ip.MMModem = s.Get("mm_modem", ip.MMModem)
+	ip.HilinkAddr = s.Get("hilink_addr", ip.HilinkAddr)
+	ip.HilinkUser = s.Get("hilink_user", ip.HilinkUser)
+	ip.HilinkPass = s.Get("hilink_pass", ip.HilinkPass)
+	ip.ADBSerial = s.Get("adb_serial", ip.ADBSerial)
+	ip.Wait = n(s, "ip_wait", ip.Wait, 1, 120)
+	ip.AfterFails = b(s, "ip_after_fails", ip.AfterFails)
+	ip.AfterN = n(s, "ip_after_n", ip.AfterN, 1, 50)
+	ip.EveryH = n(s, "ip_every_h", ip.EveryH, 0, 168)
+	ip.Button = b(s, "ip_button", ip.Button)
+	ip.MaxTries = n(s, "ip_max_tries", ip.MaxTries, 1, 20)
+	for _, v := range strings.FieldsFunc(s.Get("ip_prefix", ""), func(r rune) bool { return r == ',' || r == ' ' }) {
+		ip.Prefix = append(ip.Prefix, v)
+	}
 	for _, v := range s.Lists["bypass"] {
 		v = strings.TrimSpace(strings.SplitN(v, "#", 2)[0])
 		if v != "" {
@@ -208,6 +286,7 @@ func readProfile(s *uci.Section) Profile {
 		DNSPubkey:  strings.TrimSpace(s.Get("dns_pubkey", "")),
 		DNSType:    oneOf(strings.ToLower(s.Get("dns_type", "auto")), "auto", "auto", "txt", "null", "cname", "ns", "mx", "srv"),
 		Order:      n(s, "order", 0, 0, 100000),
+		Expires:    strings.TrimSpace(s.Get("expires", "")),
 	}
 
 	switch p.Mode {

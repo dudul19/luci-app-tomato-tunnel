@@ -6,7 +6,7 @@
 				"/usr/libexec/tomato-tunnel/ctl": [ "exec" ],
 				"/var/run/tomato-tunnel/status.json": [ "read" ]
 			},
-			"uci": [ "tomato-tunnel" ]
+			"uci": [ "tomato-tunnel", "network" ]
 		},
 		"write": {
 			"file": {

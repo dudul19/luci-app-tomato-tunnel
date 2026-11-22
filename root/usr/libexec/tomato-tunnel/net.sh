@@ -45,6 +45,7 @@ tun_up() {
 		ip $f rule add pref $PREF_BYPASS to "$b" lookup main 2>/dev/null
 	done
 	fw_allow
+	acct_up
 	if ! have_nft; then
 		iptables -C FORWARD -i "$LAN" -o "$TUN" -j ACCEPT 2>/dev/null || iptables -I FORWARD -i "$LAN" -o "$TUN" -j ACCEPT
 		iptables -C FORWARD -i "$TUN" -o "$LAN" -j ACCEPT 2>/dev/null || iptables -I FORWARD -i "$TUN" -o "$LAN" -j ACCEPT
@@ -60,6 +61,26 @@ fw_allow() {
 	nft insert rule inet fw4 forward oifname "$TUN" counter accept comment "tomato-tunnel-rt"
 }
 
+acct_up() {
+	have_nft || return 0
+	nft delete table inet tomato_tunnel_acct 2>/dev/null
+	nft -f - <<NFT 2>/dev/null || log "per-device usage not available (nftables)"
+table inet tomato_tunnel_acct {
+	set lan_up { type ipv4_addr; size 4096; flags dynamic; }
+	set lan_dn { type ipv4_addr; size 4096; flags dynamic; }
+	chain count {
+		type filter hook forward priority filter - 5; policy accept;
+		iifname "$LAN" oifname "$TUN" update @lan_up { ip saddr counter }
+		iifname "$TUN" oifname "$LAN" update @lan_dn { ip daddr counter }
+	}
+}
+NFT
+}
+
+acct_down() {
+	have_nft && nft delete table inet tomato_tunnel_acct 2>/dev/null
+}
+
 fw_revoke() {
 	have_nft || return 0
 	nft -a list chain inet fw4 forward 2>/dev/null | sed -n 's/.*tomato-tunnel-rt.*# handle \([0-9]*\).*/\1/p' | while read -r h; do
@@ -68,6 +89,7 @@ fw_revoke() {
 }
 
 tun_down() {
+	acct_down
 	fw_revoke
 	rules_del
 	if command -v iptables >/dev/null 2>&1; then

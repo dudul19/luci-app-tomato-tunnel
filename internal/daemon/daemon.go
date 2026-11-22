@@ -26,6 +26,7 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/proxy"
 	"github.com/dudul19/tomato-tunnel/internal/tunnel"
 	"github.com/dudul19/tomato-tunnel/internal/update"
+	"github.com/dudul19/tomato-tunnel/internal/usage"
 )
 
 var (
@@ -48,35 +49,41 @@ func envOr(k, def string) string {
 var Version = "dev"
 
 type Status struct {
-	State       string           `json:"state"`
-	Message     string           `json:"message,omitempty"`
-	Profile     string           `json:"profile"`
-	ProfileName string           `json:"profile_name"`
-	Mode        string           `json:"mode"`
-	Enhanced    bool             `json:"enhanced"`
-	NetMode     string           `json:"net_mode"`
-	Iface       string           `json:"iface,omitempty"`
-	Since       int64            `json:"since,omitempty"`
-	PublicIP    string           `json:"public_ip,omitempty"`
-	Country     string           `json:"country,omitempty"`
-	ISP         string           `json:"isp,omitempty"`
-	PingMS      int64            `json:"ping_ms"`
-	RX          int64            `json:"rx"`
-	TX          int64            `json:"tx"`
-	RateRX      int64            `json:"rate_rx"`
-	RateTX      int64            `json:"rate_tx"`
-	Sessions    int              `json:"sessions"`
-	Reconnects  int              `json:"reconnects_today"`
-	Policy      string           `json:"policy"`
-	Switching   string           `json:"switching,omitempty"`
-	LoginFailed map[string]int64 `json:"login_failed,omitempty"`
-	Banner      string           `json:"banner,omitempty"`
-	ServerMsg   string           `json:"server_msg,omitempty"`
-	Kex         string           `json:"kex,omitempty"`
-	Legacy      bool             `json:"legacy"`
-	Version     string           `json:"version"`
-	Updated     int64            `json:"updated"`
-	PID         int              `json:"pid"`
+	State        string           `json:"state"`
+	Message      string           `json:"message,omitempty"`
+	Profile      string           `json:"profile"`
+	ProfileName  string           `json:"profile_name"`
+	Mode         string           `json:"mode"`
+	Enhanced     bool             `json:"enhanced"`
+	NetMode      string           `json:"net_mode"`
+	Iface        string           `json:"iface,omitempty"`
+	Since        int64            `json:"since,omitempty"`
+	PublicIP     string           `json:"public_ip,omitempty"`
+	Country      string           `json:"country,omitempty"`
+	ISP          string           `json:"isp,omitempty"`
+	PingMS       int64            `json:"ping_ms"`
+	RX           int64            `json:"rx"`
+	TX           int64            `json:"tx"`
+	RateRX       int64            `json:"rate_rx"`
+	RateTX       int64            `json:"rate_tx"`
+	Sessions     int              `json:"sessions"`
+	Reconnects   int              `json:"reconnects_today"`
+	Policy       string           `json:"policy"`
+	Switching    string           `json:"switching,omitempty"`
+	LoginFailed  map[string]int64 `json:"login_failed,omitempty"`
+	Banner       string           `json:"banner,omitempty"`
+	ServerMsg    string           `json:"server_msg,omitempty"`
+	Kex          string           `json:"kex,omitempty"`
+	Legacy       bool             `json:"legacy"`
+	PeriodBytes  int64            `json:"period_bytes"`
+	TodayBytes   int64            `json:"today_bytes"`
+	QuotaGB      int              `json:"quota_gb"`
+	ChangingIP   bool             `json:"changing_ip,omitempty"`
+	LastIPChange int64            `json:"last_ip_change,omitempty"`
+	IPChangeMsg  string           `json:"ip_change_msg,omitempty"`
+	Version      string           `json:"version"`
+	Updated      int64            `json:"updated"`
+	PID          int              `json:"pid"`
 }
 
 type Daemon struct {
@@ -104,6 +111,12 @@ type Daemon struct {
 	hevDone  chan struct{}
 	hevFails int
 	svcs     []interface{ Close() }
+
+	use          *usage.Store
+	ipBusy       atomic.Bool
+	ipCh         chan struct{}
+	lastIPChange time.Time
+	failRun      int
 }
 
 func (d *Daemon) Dial(addr string) (net.Conn, error) {
@@ -143,7 +156,8 @@ func Run(cfgPath string, foreground bool) error {
 	}
 	log.SetLevel(cfg.Main.LogLevel)
 	d := &Daemon{cfg: cfg, cfgPath: cfgPath, log: log,
-		switchCh: make(chan string, 1), autoKick: make(chan struct{}, 1), autoRes: make(chan LatencyReport, 1)}
+		switchCh: make(chan string, 1), autoKick: make(chan struct{}, 1), autoRes: make(chan LatencyReport, 1),
+		ipCh: make(chan struct{}, 1), use: usage.Load(UsageFile, UsageLiveFile), lastIPChange: time.Now()}
 	d.st = Status{State: "starting", NetMode: cfg.Main.NetMode, Policy: cfg.Main.Policy, Version: Version, PID: os.Getpid()}
 	os.Remove(CmdFile)
 	d.writeStatus()
@@ -235,6 +249,8 @@ func (d *Daemon) waitOrSwitch(ctx context.Context, dur time.Duration) string {
 	case <-time.After(dur):
 	case id := <-d.switchCh:
 		return id
+	case <-d.ipCh:
+		d.changeIP(ctx, "Change IP requested")
 	}
 	return ""
 }
@@ -300,6 +316,7 @@ func (d *Daemon) supervise(ctx context.Context) {
 	var pool *tunnel.Pool
 	for ctx.Err() == nil {
 		if pool == nil {
+			pi, _ = d.skipExpired(profiles, pi)
 			p := profiles[pi%len(profiles)]
 			if err := p.Validate(); err != nil {
 				d.log.Errorf("config", "%v", err)
@@ -348,6 +365,7 @@ func (d *Daemon) supervise(ctx context.Context) {
 					d.markLogin(ProfileKey(p), true)
 				}
 				fails++
+				d.failRun++
 				authFail := errors.Is(err, tunnel.ErrAuth) && d.policy() != "manual" && len(profiles) > 1
 				if authFail {
 					fails = 3
@@ -358,21 +376,17 @@ func (d *Daemon) supervise(ctx context.Context) {
 						pi++
 						if pi%len(profiles) == 0 {
 							rounds++
-							if m.RestartModem && m.ModemIface != "" {
-								d.log.Warnf("modem", "Every profile failed, restarting modem %s", m.ModemIface)
-								exec.Command("ifup", m.ModemIface).Run()
-								sleepCtx(ctx, 20*time.Second)
-							}
 						}
 						if len(profiles) > 1 {
 							d.log.Warnf("failover", "Switching to profile %s", profiles[pi%len(profiles)].Name)
 						}
-					} else if m.RestartModem && m.ModemIface != "" {
+					} else {
 						rounds++
-						d.log.Warnf("modem", "Profile failed 3 times, restarting modem %s", m.ModemIface)
-						exec.Command("ifup", m.ModemIface).Run()
-						sleepCtx(ctx, 20*time.Second)
 					}
+				}
+				if ip := d.cfg.Main.IP; d.ipEnabled() && ip.AfterFails && d.failRun >= ip.AfterN && !errors.Is(err, tunnel.ErrAuth) {
+					d.failRun = 0
+					d.changeIP(ctx, fmt.Sprintf("%d failed connects in a row", ip.AfterN))
 				}
 				backoff := time.Duration(2<<min(fails+rounds, 4)) * time.Second
 				if authFail && pi%len(profiles) != 0 {
@@ -386,7 +400,7 @@ func (d *Daemon) supervise(ctx context.Context) {
 				}
 				continue
 			}
-			fails, rounds = 0, 0
+			fails, rounds, d.failRun = 0, 0, 0
 			pool = np
 			d.activate(pool, !first)
 			first = false
@@ -506,7 +520,7 @@ func (d *Daemon) bestOf(rep LatencyReport, cur config.Profile) (string, int64, i
 			continue
 		}
 		r, ok := rep.Results[k]
-		if !ok || r.MS < 0 || d.loginFailed(k) {
+		if !ok || r.MS < 0 || d.loginFailed(k) || p.Expired(time.Now()) {
 			continue
 		}
 		if bestMS < 0 || r.MS < bestMS {
@@ -529,8 +543,18 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 	defer stats.Stop()
 	auto := time.NewTimer(30 * time.Second)
 	defer auto.Stop()
+	sched := time.NewTicker(time.Minute)
+	defer sched.Stop()
 	for {
 		select {
+		case <-d.ipCh:
+			d.changeIP(ctx, "Change IP requested")
+			return monResult{reason: "IP changed"}
+		case <-sched.C:
+			if h := d.cfg.Main.IP.EveryH; d.ipEnabled() && h > 0 && time.Since(d.lastIPChange) >= time.Duration(h)*time.Hour {
+				d.changeIP(ctx, fmt.Sprintf("Scheduled Change IP (every %d h)", h))
+				return monResult{reason: "IP changed"}
+			}
 		case <-stats.C:
 			d.mu.Lock()
 			st := d.st
@@ -638,6 +662,19 @@ func (d *Daemon) handleCmds(ctx context.Context) {
 					}
 				}
 			}
+		case "changeip":
+			select {
+			case d.ipCh <- struct{}{}:
+			default:
+			}
+		case "usage-reset":
+			d.use.Reset()
+			d.use.ResetDeviceBase()
+			d.log.Infof("usage", "Usage statistics reset")
+		case "reload-profiles":
+			d.reloadProfiles()
+		case "reload-settings":
+			d.reloadSettings()
 		case "cancel":
 			d.mu.Lock()
 			c := d.swCancel
@@ -858,6 +895,7 @@ func (d *Daemon) shutdown() {
 	if p := d.pool.Swap(nil); p != nil {
 		p.Close()
 	}
+	d.usageTick(time.Now(), true)
 	if d.netUp {
 		m := d.cfg.Main
 		cmd := exec.Command(NetScript, "down")
@@ -885,6 +923,8 @@ func (d *Daemon) set(f func(*Status)) {
 func (d *Daemon) statusLoop(ctx context.Context) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
+	tick := 0
+	d.usageTick(time.Now(), false)
 	for {
 		select {
 		case <-ctx.Done():
@@ -900,10 +940,22 @@ func (d *Daemon) statusLoop(ctx context.Context) {
 			d.st.TX += d.st.RateTX
 			d.rxBase, d.txBase = rx, tx
 			d.st.Sessions = p.Sessions()
+			if d.use != nil {
+				d.use.AddProfile(time.Now(), ProfileKey(p.P), p.P.Name, d.st.RateRX, d.st.RateTX)
+			}
 		} else {
 			d.st.RateRX, d.st.RateTX, d.st.Sessions = 0, 0, 0
 		}
 		d.mu.Unlock()
+		tick++
+		if tick%60 == 0 {
+			d.usageTick(time.Now(), false)
+		} else if tick%10 == 0 && d.use != nil {
+			trx, ttx := d.use.Today(time.Now())
+			d.mu.Lock()
+			d.st.TodayBytes = trx + ttx
+			d.mu.Unlock()
+		}
 		d.writeStatus()
 	}
 }

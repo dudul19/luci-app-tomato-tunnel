@@ -68,6 +68,46 @@ case "$1" in
 	latency-cached)
 		cat "$RUN/latency.json" 2>/dev/null || echo '{}'
 		;;
+	usage)
+		if [ -s "$RUN/usage.json" ]; then cat "$RUN/usage.json"
+		elif [ -s /etc/tomato-tunnel/usage.json ]; then cat /etc/tomato-tunnel/usage.json
+		else echo '{"days":{},"months":{}}'; fi
+		;;
+	usage-reset)
+		if running; then
+			echo usage-reset >> "$RUN/cmd"
+			kill -USR2 "$pid"
+		else
+			rm -f "$RUN/usage.json" /etc/tomato-tunnel/usage.json
+		fi
+		echo ok
+		;;
+	changeip)
+		if running; then
+			echo changeip >> "$RUN/cmd"
+			kill -USR2 "$pid"
+		else
+			mkdir -p "$RUN"
+			if command -v setsid >/dev/null 2>&1; then
+				( setsid "$BIN" changeip >/dev/null 2>&1 < /dev/null & ) >/dev/null 2>&1
+			else
+				( "$BIN" changeip >/dev/null 2>&1 < /dev/null & ) >/dev/null 2>&1
+			fi
+		fi
+		echo started
+		;;
+	reload)
+		if running; then
+			echo reload-settings >> "$RUN/cmd"
+			kill -USR2 "$pid"
+			echo reloaded
+		else
+			echo stopped
+		fi
+		;;
+	changeip-detect)
+		"$BIN" changeip-detect
+		;;
 	start|stop|restart)
 		"$INIT" "$1" >/dev/null 2>&1
 		echo ok
@@ -132,7 +172,7 @@ case "$1" in
 		echo ok
 		;;
 	*)
-		echo "usage: $0 status|start|stop|restart|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|ifaces|banner-set|banner-clear" >&2
+		echo "usage: $0 status|start|stop|restart|usage|usage-reset|reload|changeip|changeip-detect|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|ifaces|banner-set|banner-clear" >&2
 		exit 2
 		;;
 esac

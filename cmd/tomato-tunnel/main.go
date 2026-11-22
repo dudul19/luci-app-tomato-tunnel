@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dudul19/tomato-tunnel/internal/changeip"
 	"github.com/dudul19/tomato-tunnel/internal/config"
 	"github.com/dudul19/tomato-tunnel/internal/daemon"
 	"github.com/dudul19/tomato-tunnel/internal/logx"
@@ -28,6 +29,8 @@ usage:
   tomato-tunnel run [-c config] [-f]     run the tunnel (procd starts this)
   tomato-tunnel test <profile> [-c ..]   connect once, print JSON, disconnect
   tomato-tunnel latency [-c ..]          test every profile, print JSON
+  tomato-tunnel changeip                 change the WAN IP now (Settings › Change IP)
+  tomato-tunnel changeip-detect          list AT ports, ModemManager modems, ADB phones
   tomato-tunnel update check             check GitHub for a newer release (JSON)
   tomato-tunnel update install           download, verify and install it
   tomato-tunnel version
@@ -70,6 +73,33 @@ func main() {
 		rep := daemon.Measure(context.Background(), c.Main, c.Profiles, 15*time.Second)
 		daemon.SaveLatency(rep)
 		b, _ := json.Marshal(rep)
+		fmt.Println(string(b))
+	case "changeip":
+		cfg, err := config.Load(config.DefaultPath)
+		if err != nil {
+			fmt.Println("error:", err)
+			os.Exit(1)
+		}
+		log := logx.New(daemon.LogFile, 1000, true)
+		r := changeip.Run(context.Background(), cfg.Main.IP, cfg.Main.WanIface, log)
+		b, _ := json.Marshal(r)
+		fmt.Println(string(b))
+		if !r.OK {
+			os.Exit(1)
+		}
+	case "changeip-detect":
+		out := map[string]any{"at": changeip.DetectAT()}
+		if m, err := changeip.MMModems(); err == nil {
+			out["mm"] = m
+		} else {
+			out["mm_error"] = err.Error()
+		}
+		if a, err := changeip.ADBDevices(); err == nil {
+			out["adb"] = a
+		} else {
+			out["adb_error"] = err.Error()
+		}
+		b, _ := json.Marshal(out)
 		fmt.Println(string(b))
 	case "update":
 		if len(os.Args) < 3 {
