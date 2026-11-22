@@ -39,6 +39,8 @@ var (
 
 const TunName = "tt0"
 
+const HistLen = 30
+
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -81,6 +83,8 @@ type Status struct {
 	ChangingIP   bool             `json:"changing_ip,omitempty"`
 	LastIPChange int64            `json:"last_ip_change,omitempty"`
 	IPChangeMsg  string           `json:"ip_change_msg,omitempty"`
+	IPChangeOld  string           `json:"ip_change_old,omitempty"`
+	Hist         [][]int64        `json:"hist"`
 	Version      string           `json:"version"`
 	Updated      int64            `json:"updated"`
 	PID          int              `json:"pid"`
@@ -951,6 +955,7 @@ func (d *Daemon) statusLoop(ctx context.Context) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	tick := 0
+	var accRX, accTX int64
 	d.usageTick(time.Now(), false)
 	for {
 		select {
@@ -972,6 +977,19 @@ func (d *Daemon) statusLoop(ctx context.Context) {
 			}
 		} else {
 			d.st.RateRX, d.st.RateTX, d.st.Sessions = 0, 0, 0
+		}
+		accRX += d.st.RateRX
+		accTX += d.st.RateTX
+		if tick%2 == 1 {
+			var smp []int64
+			if p != nil && d.st.State == "connected" {
+				smp = []int64{accRX / 2, accTX / 2}
+			}
+			d.st.Hist = append(d.st.Hist, smp)
+			if len(d.st.Hist) > HistLen {
+				d.st.Hist = d.st.Hist[len(d.st.Hist)-HistLen:]
+			}
+			accRX, accTX = 0, 0
 		}
 		d.mu.Unlock()
 		tick++

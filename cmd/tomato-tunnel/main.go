@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dudul19/tomato-tunnel/internal/bot"
 	"github.com/dudul19/tomato-tunnel/internal/changeip"
 	"github.com/dudul19/tomato-tunnel/internal/config"
 	"github.com/dudul19/tomato-tunnel/internal/daemon"
@@ -34,6 +35,8 @@ usage:
   tomato-tunnel update check             check GitHub for a newer release (JSON)
   tomato-tunnel update install           download, verify and install it
   tomato-tunnel xray install|remove      add or remove the Xray add-on (from GitHub)
+  tomato-tunnel bot                      run the Telegram bot (Settings › Telegram)
+  tomato-tunnel bot-pair                 make a 6-digit pairing code (valid 5 minutes)
   tomato-tunnel version
 `, version)
 	os.Exit(2)
@@ -112,6 +115,18 @@ func main() {
 			usage()
 		}
 		os.Exit(doXray(os.Args[2]))
+	case "bot":
+		if err := bot.Run(config.DefaultPath, version); err != nil {
+			fmt.Fprintln(os.Stderr, "bot:", err)
+			os.Exit(1)
+		}
+	case "bot-pair":
+		code, err := bot.NewPairCode()
+		if err != nil {
+			fmt.Println("error:", err)
+			os.Exit(1)
+		}
+		fmt.Println(code)
 	case "version", "-v", "--version":
 		fmt.Println(version)
 	default:

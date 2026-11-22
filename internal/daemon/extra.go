@@ -135,6 +135,7 @@ func (d *Daemon) changeIP(ctx context.Context, why string) changeip.Result {
 	d.set(func(s *Status) {
 		s.ChangingIP = false
 		s.LastIPChange = time.Now().Unix()
+		s.IPChangeOld = r.Old
 		if r.OK {
 			s.IPChangeMsg = "New IP " + r.New
 		} else {

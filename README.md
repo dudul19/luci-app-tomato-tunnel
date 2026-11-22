@@ -58,7 +58,8 @@ Other features:
 - DNS through the tunnel. dnsmasq is pointed at it while connected and
   restored when you stop.
 - Dashboard with live download/upload speed, a 60-second traffic chart, ping,
-  public IP and every profile with its latency.
+  public IP and every profile with its latency. The chart is kept by the daemon,
+  so it is still there after a page reload, and drops show as gaps.
 - Switch profiles from the Dashboard without Stop and Start. The current tunnel
   keeps working until the new profile is connected; if it fails, nothing changes.
 - Profile selection: Manual, Fallback (next profile after 3 failed reconnects)
@@ -83,6 +84,16 @@ Other features:
 - Paste an account message to import it, share one account as a link, or back up
   and restore every account as a JSON file.
 - Reorder accounts by dragging them, delete them straight from the list.
+- Telegram bot (Settings › Telegram, off by default): status, switch profile,
+  Manual / Fallback / Auto, Change IP, start / stop, usage, accounts (add from a
+  link, expiry, delete), router and devices, log, update, backup and restore,
+  reboot. Alerts when the tunnel drops or comes back, a profile is switched, a
+  login fails, an account is about to expire, the IP changes, the router starts,
+  a new device joins or an update is out, plus a daily report. Tables and
+  coloured buttons, English or Bahasa Indonesia. Admins pair with a 6-digit code
+  from LuCI; nobody else can use it, and every action can be turned off. Runs as
+  its own small service, so Start works while the tunnel is stopped. Reaches
+  Telegram over the WAN first, then through the tunnel.
 - Six built-in banners (Tomato is the default) or your own image.
 - 1 to 4 parallel SSH sessions.
 - Updates from GitHub Releases inside LuCI, checked with SHA256. Settings are kept.
@@ -207,12 +218,13 @@ offered on the Beta channel.
 
 | Path | Contents |
 |---|---|
-| `cmd/tomato-tunnel` | daemon and command line (`run`, `test`, `update`) |
+| `cmd/tomato-tunnel` | daemon and command line (`run`, `test`, `update`, `bot`) |
 | `internal/tunnel` | payload, TLS, SlowDNS, SSH, ZiVPN, Xray and session pool |
 | `internal/proxy` | SOCKS5 with UDP over UDPGW, transparent redirect, DNS forwarder |
 | `internal/daemon` | reconnect, ping check, live profile switch, latency test and status |
 | `internal/usage` | daily, per-account and per-device traffic statistics |
 | `internal/changeip` | Change IP methods (interface, AT, ModemManager, HiLink, ADB) |
+| `internal/bot` | Telegram bot: menus, alerts, daily report, pairing |
 | `root/` | OpenWrt files: init script, network script, LuCI page |
 
 ## Credits

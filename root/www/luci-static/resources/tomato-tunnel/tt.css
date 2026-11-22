@@ -401,3 +401,6 @@ a.tt-thxc:focus-visible { outline: 2px solid #2b8fd6; outline-offset: 2px; }
 }
 svg.tt-wm { background: transparent !important; }
 .tt-authw svg.tt-lock { height: 58px; margin: 0 0 .2em; }
+.tt-pair { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 1.8em; letter-spacing: .25em; margin: .3em 0; }
+.tt-warnc { color: #c58a12; }
+.tt-cgap { fill: currentColor; opacity: .07; }

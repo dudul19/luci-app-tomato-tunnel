@@ -26,10 +26,20 @@ config main 'main'
 	option update_check '1'
 CFG
 fi
+if ! uci -q get tomato-tunnel.bot >/dev/null; then
+	uci set tomato-tunnel.bot=bot
+	uci set tomato-tunnel.bot.enabled=0
+	uci set tomato-tunnel.bot.lang=en
+	uci set tomato-tunnel.bot.route=auto
+	uci set tomato-tunnel.bot.down_after=30
+	uci set tomato-tunnel.bot.report_hour=0
+	uci commit tomato-tunnel
+fi
 chmod 600 /etc/config/tomato-tunnel
 mkdir -p /etc/tomato-tunnel /www/luci-static/tomato-tunnel
 [ -f /etc/tomato-tunnel/banner.img ] && ln -sf /etc/tomato-tunnel/banner.img /www/luci-static/tomato-tunnel/banner.img
 /etc/init.d/tomato-tunnel enable
+/etc/init.d/tomato-tunnel-bot enable
 [ -x /sbin/fw4 ] && fw4 -q reload
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null
 /etc/init.d/rpcd reload 2>/dev/null

@@ -69,7 +69,7 @@ stage() {
 	install -Dm755 "$HEVDIR/hev-socks5-tunnel-$hev" "$ROOT/usr/libexec/tomato-tunnel/hev-socks5-tunnel"
 	find "$ROOT" -type d -exec chmod 755 {} +
 	find "$ROOT" -type f -exec chmod 644 {} +
-	chmod 755 "$ROOT/usr/bin/tomato-tunnel" "$ROOT/etc/init.d/tomato-tunnel" \
+	chmod 755 "$ROOT/usr/bin/tomato-tunnel" "$ROOT/etc/init.d/tomato-tunnel" "$ROOT/etc/init.d/tomato-tunnel-bot" \
 		"$ROOT/usr/libexec/tomato-tunnel/net.sh" "$ROOT/usr/libexec/tomato-tunnel/ctl" \
 		"$ROOT/usr/libexec/tomato-tunnel/hev-socks5-tunnel" \
 		"$ROOT/etc/uci-defaults/90-tomato-tunnel"

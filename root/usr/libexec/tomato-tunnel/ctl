@@ -196,8 +196,33 @@ case "$1" in
 		rm -f "$BANNER" "$WWW/banner.img"
 		echo ok
 		;;
+	bot-status)
+		if [ -f "$RUN/bot.json" ]; then
+			bpid=$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$RUN/bot.json")
+			if [ -n "$bpid" ] && kill -0 "$bpid" 2>/dev/null; then cat "$RUN/bot.json"; else echo '{"state":"stopped"}'; fi
+		else
+			echo '{"state":"stopped"}'
+		fi
+		;;
+	bot-pair)
+		"$BIN" bot-pair
+		;;
+	bot-restart)
+		/etc/init.d/tomato-tunnel-bot enable >/dev/null 2>&1
+		/etc/init.d/tomato-tunnel-bot restart >/dev/null 2>&1
+		echo ok
+		;;
+	bot-test)
+		bpid=$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$RUN/bot.json" 2>/dev/null)
+		if [ -n "$bpid" ] && kill -0 "$bpid" 2>/dev/null; then
+			kill -USR1 "$bpid"
+			echo sent
+		else
+			echo "bot is not running"
+		fi
+		;;
 	*)
-		echo "usage: $0 status|start|stop|restart|usage|usage-reset|reload|changeip|changeip-detect|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|xray-version|xray-system|xray-install|xray-remove|xray-log|ifaces|banner-set|banner-clear" >&2
+		echo "usage: $0 status|start|stop|restart|usage|usage-reset|reload|changeip|changeip-detect|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|xray-version|xray-system|xray-install|xray-remove|xray-log|ifaces|banner-set|banner-clear|bot-status|bot-pair|bot-restart|bot-test" >&2
 		exit 2
 		;;
 esac

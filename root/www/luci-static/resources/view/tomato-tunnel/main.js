@@ -369,7 +369,7 @@ return view.extend({
 		this.tabsEl = E('ul', { 'class': 'cbi-tabmenu' });
 		this.bodyEl = E('div', { 'class': 'tt-wrap' });
 		var root = E('div', { 'class': 'cbi-map tt-wrap' }, [
-			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-15' }),
+			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-18' }),
 			E('h2', { 'name': 'content' }, 'Tomato Tunnel'),
 			E('div', { 'class': 'cbi-map-descr' }, [ 'SSH, ZiVPN and Xray tunnel · v' + this.version + ' · by ',
 				E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, '@dudulrealnofek') ]),
@@ -525,27 +525,43 @@ return view.extend({
 	paintChart: function() {
 		var r = this.refs, h = this.hist || [];
 		if (!r.chart) return;
-		var W = 600, H = 120, n = 30, max = 1;
-		var sm = h.map(function(s, i) {
-			var a = h[i - 1] || s, b = h[i + 1] || s;
-			return [ (a[0] + 2 * s[0] + b[0]) / 4, (a[1] + 2 * s[1] + b[1]) / 4 ];
+		var W = 600, H = 120, n = 30, max = 1, off = n - h.length;
+		var segs = [], cur = null;
+		h.forEach(function(s, i) {
+			if (!s || s.length < 2) { cur = null; return; }
+			if (!cur) { cur = []; segs.push(cur); }
+			cur.push([ i, +s[0] || 0, +s[1] || 0 ]);
 		});
-		sm.forEach(function(s) { max = Math.max(max, s[0], s[1]); });
+		segs = segs.map(function(sg) {
+			return sg.map(function(s, i) {
+				var a = sg[i - 1] || s, b = sg[i + 1] || s;
+				return [ s[0], (a[1] + 2 * s[1] + b[1]) / 4, (a[2] + 2 * s[2] + b[2]) / 4 ];
+			});
+		});
+		segs.forEach(function(sg) { sg.forEach(function(s) { max = Math.max(max, s[1], s[2]); }); });
 		max *= 1.15;
-		var pts = function(k) {
-			return sm.map(function(s, i) { return [ W * (n - sm.length + i) / (n - 1), H - 3 - (H - 10) * s[k] / max ]; });
-		};
-		var line = function(k, cls) {
-			var p = pts(k), d = smooth(p);
+		var x = function(i) { return W * (off + i) / (n - 1); };
+		var line = function(sg, k, cls) {
+			var p = sg.map(function(s) { return [ x(s[0]), H - 3 - (H - 10) * s[k] / max ]; });
+			if (p.length === 1) p = [ [ p[0][0] - 4, p[0][1] ], [ p[0][0], p[0][1] ] ];
+			var d = smooth(p);
 			if (!d) return '';
 			return '<path class="' + cls + 'a" d="' + d + ' L' + p[p.length - 1][0].toFixed(1) + ',' + H + ' L' + p[0][0].toFixed(1) + ',' + H + ' Z"/>' +
 				'<path class="' + cls + '" d="' + d + '"/>';
 		};
+		var gaps = '';
+		h.forEach(function(s, i) {
+			if (s && s.length >= 2) return;
+			if (h.some(function(z, j) { return j < i && z && z.length >= 2; }))
+				gaps += '<rect class="tt-cgap" x="' + (x(i) - W / (n - 1) / 2).toFixed(1) + '" y="0" width="' + (W / (n - 1)).toFixed(1) + '" height="' + H + '"/>';
+		});
+		var pts = 0;
+		segs.forEach(function(sg) { pts += sg.length; });
 		var grid = '<line x1="0" y1="30" x2="600" y2="30"/><line x1="0" y1="60" x2="600" y2="60"/><line x1="0" y1="90" x2="600" y2="90"/>';
 		r.chart.innerHTML = '<svg viewBox="0 0 600 120" preserveAspectRatio="none" aria-hidden="true">' +
-			'<g class="tt-cg">' + grid + '</g>' +
-			(sm.length > 1 ? line(0, 'tt-cd') + line(1, 'tt-cu') : '') +
-			'</svg>' + (sm.length > 1 ? '<div class="tt-cmax">' + fmtRate(max) + '</div>' : '');
+			'<g class="tt-cg">' + grid + '</g>' + gaps +
+			segs.map(function(sg) { return line(sg, 1, 'tt-cd') + line(sg, 2, 'tt-cu'); }).join('') +
+			'</svg>' + (pts > 1 ? '<div class="tt-cmax">' + fmtRate(max) + '</div>' : '');
 	},
 
 	paintStatus: function() {
@@ -762,7 +778,9 @@ return view.extend({
 
 	sample: function() {
 		var st = this.st || {};
-		if (st.state !== 'connected') { if (st.state === 'stopped') this.hist = []; return; }
+		if (st.state === 'stopped') { this.hist = []; return; }
+		if (Array.isArray(st.hist)) { this.hist = st.hist.slice(-30); return; }
+		if (st.state !== 'connected') return;
 		this.hist.push([ +st.rate_rx || 0, +st.rate_tx || 0 ]);
 		if (this.hist.length > 30) this.hist.shift();
 	},
@@ -1551,6 +1569,7 @@ return view.extend({
 			[ 'general', 'General', 'Start, reconnect, reminders' ],
 			[ 'changeip', 'Change IP', 'Modem or phone airplane mode' ],
 			[ 'network', 'Network', 'TUN, SOCKS, DNS, bypass' ],
+			[ 'telegram', 'Telegram', 'Bot, alerts, remote control' ],
 			[ 'look', 'Appearance', 'Banner' ],
 			[ 'about', 'About & update', 'Version, update, credits' ]
 		];
@@ -1605,6 +1624,7 @@ return view.extend({
 			button('Reset', 'reset', function() { uci.unload(CONF); uci.load(CONF).then(function() { self.show('settings'); }); })
 		]);
 		if (sub === 'about') return this.renderAbout();
+		if (sub === 'telegram') return this.renderTelegram();
 		if (sub === 'changeip') return [ this.renderChangeIP(), foot ];
 		if (sub === 'look') {
 			var cur = g('banner', 'tomato');
@@ -1671,6 +1691,103 @@ return view.extend({
 			row('Failures before reconnect', txt('check_fail', '3', { 'inputmode': 'numeric' })),
 			row('Parallel SSH sessions', sel('sessions', '1', [ [ '1', '1 (normal)' ], [ '2', '2' ], [ '3', '3' ], [ '4', '4' ] ]))
 		], 'The basics. Most people never change anything else.'), foot ];
+	},
+
+	renderTelegram: function() {
+		var self = this, box = E('div');
+		if (!uci.get(CONF, 'bot')) {
+			uci.add(CONF, 'bot', 'bot');
+			uci.set(CONF, 'bot', 'enabled', '0');
+		}
+		var bg = function(o, d) { var v = uci.get(CONF, 'bot', o); return (v == null || v === '') ? d : v; };
+		var bs = function(o, v) { uci.set(CONF, 'bot', o, v); };
+		var bflag = function(o, d) { return checkbox(bg(o, d) === '1', function(v) { bs(o, v ? '1' : '0'); }); };
+		var bsel = function(o, d, opts) { return select(bg(o, d), opts, function(v) { bs(o, v); }); };
+		var stLine = E('span', { 'class': 'tt-muted' }, 'Checking…');
+		var bot = { state: 'stopped' };
+		var paintSt = function() {
+			var t = { online: 'Running · connected to Telegram', offline: 'Running · cannot reach Telegram yet', bad_token: 'The token was rejected by Telegram', stopped: 'Stopped' }[bot.state] || bot.state;
+			stLine.textContent = t + (bot.username ? ' · @' + bot.username : '');
+			stLine.className = bot.state === 'online' ? 'tt-ok' : (bot.state === 'stopped' ? 'tt-muted' : 'tt-warnc');
+		};
+		var loadSt = function() { return ctlJSON([ 'bot-status' ]).then(function(r) { bot = r || { state: 'stopped' }; paintSt(); }); };
+		loadSt();
+		var tok = textInput(bg('token', ''), function(v) { bs('token', v.trim()); }, { 'type': 'password', 'autocomplete': 'new-password', 'spellcheck': 'false', 'placeholder': '123456789:AA…', 'class': 'cbi-input-text tt-mono' });
+		var tokRow = E('div', { 'class': 'tt-inline' }, [ tok, button('Show', 'neutral', function(ev) { var sh = tok.type === 'password'; tok.type = sh ? 'text' : 'password'; ev.currentTarget.textContent = sh ? 'Hide' : 'Show'; }) ]);
+		var admBox = E('div');
+		var paintAdm = function() {
+			admBox.innerHTML = '';
+			var list = uci.get(CONF, 'bot', 'admin') || [];
+			if (!Array.isArray(list)) list = [ list ];
+			if (!list.length) { admBox.appendChild(E('em', { 'class': 'tt-muted' }, 'No admin yet. Make a pairing code below.')); return; }
+			admBox.appendChild(table([ 'Telegram ID', 'Name', '' ], list.map(function(a) {
+				var i = a.indexOf(':'), id = i < 0 ? a : a.slice(0, i), nm = i < 0 ? '' : a.slice(i + 1);
+				return [ E('span', { 'class': 'tt-mono' }, id), nm || '-', button('Remove', 'remove', function() {
+					var rest = (uci.get(CONF, 'bot', 'admin') || []).filter(function(x) { return x !== a; });
+					uci.set(CONF, 'bot', 'admin', rest.length ? rest : null);
+					self.commit('Admin removed.').then(function() { ctl([ 'bot-restart' ]); paintAdm(); });
+				}) ];
+			})));
+		};
+		paintAdm();
+		var codeBox = E('div', { 'class': 'cbi-value-description' }, 'Press New code, then send /pair <code> to your bot within 5 minutes.');
+		var pairBtn = button('New code', 'action', function(ev) {
+			var b = ev.currentTarget;
+			b.disabled = true;
+			ctl([ 'bot-pair' ]).then(function(out) {
+				var c = (out || '').trim();
+				codeBox.innerHTML = '';
+				if (!/^\d{6}$/.test(c)) { codeBox.appendChild(E('span', {}, 'Could not make a code: ' + c)); return; }
+				codeBox.appendChild(E('div', { 'class': 'tt-pair' }, c));
+				codeBox.appendChild(E('div', {}, [ 'Send ', E('code', {}, '/pair ' + c), ' to ' + (bot.username ? '@' + bot.username : 'your bot') + ' within 5 minutes. The code works once.' ]));
+				var t0 = Date.now(), tick = setInterval(function() {
+					uci.unload(CONF);
+					uci.load(CONF).then(function() {
+						var n = (uci.get(CONF, 'bot', 'admin') || []).length;
+						if (n !== self._admN) { self._admN = n; paintAdm(); codeBox.innerHTML = ''; codeBox.appendChild(E('span', { 'class': 'tt-ok' }, 'Paired. The new admin is in the list above.')); clearInterval(tick); }
+					});
+					if (Date.now() - t0 > 300000) clearInterval(tick);
+				}, 4000);
+			}).finally(function() { b.disabled = false; });
+		});
+		self._admN = (uci.get(CONF, 'bot', 'admin') || []).length;
+		var N = [ [ 'down', 'Tunnel down / back up', '1' ], [ 'switch', 'Profile switched (Fallback / Auto)', '1' ], [ 'login', 'Login failed', '1' ], [ 'expiry', 'Account expires soon', '1' ],
+			[ 'ip', 'Public IP changed', '1' ], [ 'boot', 'Router started', '1' ], [ 'device', 'New device joined', '0' ], [ 'update', 'Update available', '1' ] ];
+		var A = [ [ 'control', 'Start / stop / switch profile' ], [ 'changeip', 'Change IP' ], [ 'accounts', 'Add / edit / delete accounts' ], [ 'update', 'Install updates' ], [ 'restore', 'Restore backup' ], [ 'reboot', 'Reboot router' ] ];
+		var hours = [ [ '-1', 'Off' ] ];
+		[ 0, 6, 7, 8, 12, 18, 21 ].forEach(function(h) { hours.push([ String(h), ('0' + h).slice(-2) + ':00' ]); });
+		var hasPair = !!bg('token', '');
+		box.appendChild(section('Telegram bot', [
+			row('Enable bot', bflag('enabled', '0')),
+			row('Status', stLine),
+			row('Bot token', tokRow, 'From @BotFather. Kept in /etc/config with mode 600.'),
+			row('Language', bsel('lang', 'en', [ [ 'en', 'English' ], [ 'id', 'Bahasa Indonesia' ] ])),
+			row('Connect via', bsel('route', 'auto', [ [ 'auto', 'Auto (WAN first, then tunnel)' ], [ 'wan', 'WAN only' ], [ 'tunnel', 'Tunnel only' ] ]), 'Auto keeps "tunnel down" alerts working when the tunnel is off.')
+		], 'Control the tunnel and get alerts from Telegram. Runs as its own small process, so Start works even when the tunnel is stopped.'));
+		box.appendChild(section('Admins', [
+			admBox,
+			row('Pair new admin', E('div', {}, [ pairBtn, codeBox ]), hasPair ? null : 'Save a token and enable the bot first.')
+		], 'Only paired Telegram accounts can use the bot.'));
+		box.appendChild(section('Notifications', N.map(function(n) { return row(n[1], bflag('n_' + n[0], n[2])); }).concat([
+			row('Alert after down for', bsel('down_after', '30', [ [ '15', '15 seconds' ], [ '30', '30 seconds' ], [ '60', '1 minute' ], [ '300', '5 minutes' ] ]), 'Short drops are not reported.'),
+			row('Daily report', bsel('report_hour', '0', hours), 'Usage of the previous day.')
+		])));
+		box.appendChild(section('Allowed actions', A.map(function(a) { return row(a[1], bflag('a_' + a[0], '1')); }), 'Turn off what the bot must not do. Viewing is always allowed.'));
+		box.appendChild(E('div', { 'class': 'cbi-page-actions tt-pgact' }, [
+			button('Send test message', 'neutral', function(ev) {
+				var b = ev.currentTarget; b.disabled = true;
+				ctl([ 'bot-test' ]).then(function(r) { ui.addNotification(null, E('p', (r || '').trim() === 'sent' ? 'Test message sent to every admin.' : 'The bot is not running. Save & Apply first.'), 'info'); }).finally(function() { b.disabled = false; });
+			}), ' ',
+			button('Save & Apply', 'apply', function(ev) {
+				var b = ev.currentTarget; b.disabled = true;
+				self.commit(false).then(function() { return ctl([ 'bot-restart' ]); }).then(function() {
+					ui.addNotification(null, E('p', bg('enabled', '0') === '1' ? 'Saved. The bot is restarting.' : 'Saved. The bot is off.'), 'info');
+					setTimeout(loadSt, 4000);
+				}).finally(function() { b.disabled = false; });
+			}), ' ',
+			button('Reset', 'reset', function() { uci.unload(CONF); uci.load(CONF).then(function() { self.show('settings'); }); })
+		]));
+		return [ box ];
 	},
 
 	renderChangeIP: function() {

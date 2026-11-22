@@ -7,4 +7,6 @@ if [ -f /tmp/.tomato-tunnel-was-running ] || pgrep -f "/usr/bin/tomato-tunnel ru
 	rm -f /tmp/.tomato-tunnel-was-running
 	/etc/init.d/tomato-tunnel restart >/dev/null 2>&1
 fi
+/etc/init.d/tomato-tunnel-bot enable >/dev/null 2>&1
+/etc/init.d/tomato-tunnel-bot restart >/dev/null 2>&1
 exit 0
