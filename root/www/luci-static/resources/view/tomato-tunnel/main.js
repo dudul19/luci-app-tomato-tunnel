@@ -36,7 +36,7 @@ function layers(p) {
 	return L;
 }
 function layerLabel(L) {
-	if (L.zivpn) return 'ZiVPN (UDP)';
+	if (L.zivpn) return 'ZiVPN';
 	if (!L.payload && !L.tls && !L.dns) return 'SSH Direct';
 	return 'SSH' + (L.payload ? ' + Payload' : '') + (L.tls ? ' + TLS' : '') + (L.enh ? ' + Enhanced' : '') + (L.dns ? ' + SlowDNS' : '');
 }
@@ -217,15 +217,13 @@ return view.extend({
 		this.tabsEl = E('ul', { 'class': 'cbi-tabmenu' });
 		this.bodyEl = E('div', { 'class': 'tt-wrap' });
 		var root = E('div', { 'class': 'cbi-map tt-wrap' }, [
-			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-6' }),
+			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-7' }),
 			E('h2', { 'name': 'content' }, 'Tomato Tunnel'),
-			E('div', { 'class': 'cbi-map-descr' }, [ 'SSH tunnel (Direct, Payload, SSL/SNI, WebSocket, SlowDNS, Enhanced payload) and ZiVPN (UDP). Made by ',
+			E('div', { 'class': 'cbi-map-descr' }, [ 'SSH tunnel (Direct, Payload, SSL/SNI, WebSocket, SlowDNS, Enhanced payload) and ZiVPN. Made by ',
 				E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, '@dudulrealnofek'), '.' ]),
 			this.bannerEl = E('div'),
 			this.tabsEl,
-			this.bodyEl,
-			E('div', { 'class': 'tt-foot' }, [ 'Tomato Tunnel v' + (this.version || '?') + ' · GPL-3.0 · made by ',
-				E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, '@dudulrealnofek') ])
+			this.bodyEl
 		]);
 		this.show(this.tab);
 		poll.add(function() { return self.refresh(); }, 2);
@@ -293,7 +291,7 @@ return view.extend({
 		var art = mode === 'custom' ? E('img', { 'src': '/luci-static/tomato-tunnel/banner.img?' + Date.now(), 'alt': '' }) : raw(BANNER_SVG);
 		return E('div', { 'class': 'tt-banner' }, [ art, E('div', { 'class': 'tt-bt' }, [
 			E('span', { 'class': 'tt-name' }, 'Tomato Tunnel'),
-			E('span', { 'class': 'tt-sub' }, 'SSH · Payload · SSL/SNI · WebSocket · SlowDNS · Enhanced'),
+			E('span', { 'class': 'tt-sub' }, 'SSH · Payload · SSL/SNI · WebSocket · SlowDNS · Enhanced · ZiVPN'),
 			E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, 'by @dudulrealnofek')
 		]) ]);
 	},

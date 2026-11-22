@@ -14,7 +14,6 @@
 .tt-bad { color: #d9363e; font-weight: bold; }
 .tt-actions { display: flex; flex-wrap: wrap; gap: .5em; margin: .5em 0; }
 .tt-actions .cbi-button { margin: 0; }
-.tt-foot { text-align: center; opacity: .8; margin: 1.5em 0 .5em; font-size: 90%; }
 .tt-cbtn { white-space: nowrap; }
 .tt-table .td { vertical-align: middle; }
 .tt-wrap { width: 100%; }

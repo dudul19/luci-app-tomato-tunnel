@@ -2,7 +2,7 @@
 
 SSH and ZiVPN tunnel client for OpenWrt with a LuCI page. For SSH it works like
 HTTP Custom: SSH is the base, and you add the layers you need on top of it.
-ZiVPN (UDP) works like the ZiVPN app: host, port and password only.
+ZiVPN works like the ZiVPN app: host, port and password only.
 
 ## Preview
 
@@ -22,7 +22,7 @@ Dashboard of v1.1.0 on ImmortalWrt with the Argon theme. Public IP, ISP and serv
 | SSH + Payload + TLS + Enhanced | Same, with the payload split |
 | SSH + SlowDNS | SSH carried over DNS (dnstt) |
 | SSH + Payload + SlowDNS | Payload sent through the SlowDNS stream |
-| ZiVPN (UDP) | ZiVPN app protocol (Hysteria2 over QUIC). Carries TCP and UDP, only host, port and password needed |
+| ZiVPN | ZiVPN app protocol (Hysteria2 over QUIC). Carries TCP and UDP, only host, port and password needed |
 
 Any other combination can be set with "Custom combination" in the account form.
 
