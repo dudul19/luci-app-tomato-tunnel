@@ -55,7 +55,9 @@ Other features:
 - aarch64 router (`aarch64_generic`, `aarch64_cortex-a53` or `aarch64_cortex-a72`)
 - OpenWrt or ImmortalWrt 23.05 or newer
 - These packages, installed automatically from the official repo:
-  `kmod-tun ip-full hev-socks5-tunnel ca-bundle luci-base`
+  `kmod-tun ip-full ca-bundle luci-base`
+- hev-socks5-tunnel 2.17.1 (static, MIT) is bundled in the package, so it also
+  installs on OpenWrt 23.05 where that package is not in the feed
 
 ## Install
 

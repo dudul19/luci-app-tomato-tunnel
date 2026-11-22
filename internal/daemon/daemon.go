@@ -744,9 +744,13 @@ func (d *Daemon) netSetup() error {
 
 func (d *Daemon) startHev() error {
 	m := d.cfg.Main
-	bin, err := exec.LookPath("hev-socks5-tunnel")
-	if err != nil {
-		return fmt.Errorf("hev-socks5-tunnel is not installed (needed for TUN mode)")
+	bin := "/usr/libexec/tomato-tunnel/hev-socks5-tunnel"
+	if st, err := os.Stat(bin); err != nil || st.Mode()&0111 == 0 {
+		b, err := exec.LookPath("hev-socks5-tunnel")
+		if err != nil {
+			return fmt.Errorf("hev-socks5-tunnel is not installed (needed for TUN mode)")
+		}
+		bin = b
 	}
 	conf := filepath.Join(RunDir, "hev.yml")
 	host := m.SocksListen

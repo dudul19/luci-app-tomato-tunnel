@@ -6,7 +6,8 @@ VERSION=$(cat VERSION)
 REL=1
 PKG=luci-app-tomato-tunnel
 ARCHS="${ARCHS:-aarch64_generic aarch64_cortex-a53 aarch64_cortex-a72}"
-DEPENDS="libc kmod-tun ip-full hev-socks5-tunnel ca-bundle luci-base"
+DEPENDS="libc kmod-tun ip-full ca-bundle luci-base"
+HEV=third_party/hev-socks5-tunnel/hev-socks5-tunnel-linux-arm64
 DESC="Tomato Tunnel: SSH tunnel client (Direct, Payload, SSL/SNI, WebSocket, WebSocket-TLS, SlowDNS, Enhanced payload) with LuCI page. Made by @dudulrealnofek."
 URL="https://github.com/dudul19/tomato-tunnel"
 APK="${APK:-$(ls ../king3399-immortalwrt/immortalwrt-imagebuilder-*/staging_dir/host/bin/apk 2>/dev/null | head -1)}"
@@ -28,10 +29,13 @@ ROOT="$WORK/root"
 mkdir -p "$ROOT"
 cp -a root/. "$ROOT/"
 install -Dm755 "$WORK/tomato-tunnel" "$ROOT/usr/bin/tomato-tunnel"
+echo "$(cat third_party/hev-socks5-tunnel/SHA256)  $HEV" | sha256sum -c --quiet
+install -Dm755 "$HEV" "$ROOT/usr/libexec/tomato-tunnel/hev-socks5-tunnel"
 find "$ROOT" -type d -exec chmod 755 {} +
 find "$ROOT" -type f -exec chmod 644 {} +
 chmod 755 "$ROOT/usr/bin/tomato-tunnel" "$ROOT/etc/init.d/tomato-tunnel" \
 	"$ROOT/usr/libexec/tomato-tunnel/net.sh" "$ROOT/usr/libexec/tomato-tunnel/ctl" \
+	"$ROOT/usr/libexec/tomato-tunnel/hev-socks5-tunnel" \
 	"$ROOT/etc/uci-defaults/90-tomato-tunnel"
 SIZE=$(du -sb "$ROOT" | cut -f1)
 
