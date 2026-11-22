@@ -322,7 +322,8 @@ return view.extend({
 			ctl([ 'version' ]),
 			ctl([ 'ifaces' ]),
 			ctlJSON([ 'latency-cached' ]),
-			ctl([ 'xray-version' ])
+			ctl([ 'xray-version' ]),
+			ctl([ 'xray-system' ])
 		]); });
 	},
 
@@ -356,6 +357,7 @@ return view.extend({
 		this.ifaces = (data[4] || '').split('\n').filter(function(x) { return x; });
 		this.lat = data[5] && data[5].results ? data[5] : null;
 		this.xrayVer = (data[6] || '').trim();
+		this.xraySys = (data[7] || '').trim();
 		this.hist = [];
 		this.sel = this.activeId();
 		this.tab = (location.hash || '').replace('#', '');
@@ -1847,7 +1849,7 @@ return view.extend({
 		return section('Xray add-on', [
 			table(null, [
 				[ E('strong', {}, 'Status'), on ? E('span', { 'class': 'tt-ok' }, this.xrayVer) : E('span', { 'class': 'tt-muted' }, 'Not installed') ]
-			]),
+			].concat(this.xraySys ? [ [ E('strong', {}, 'System xray-core'), E('span', {}, [ this.xraySys.split(' (')[0], E('br'), E('small', { 'class': 'tt-muted' }, 'Found (for example from PassWall). Not used: Tomato Tunnel needs its own build, which keeps Allow insecure.') ]) ] ] : [])),
 			E('div', { 'class': 'tt-actions' }, on
 				? button('Remove Xray', 'remove', function(ev) { self.installXray(ev.currentTarget, log, true); })
 				: button('Install Xray', 'apply', function(ev) { self.installXray(ev.currentTarget, log); })),

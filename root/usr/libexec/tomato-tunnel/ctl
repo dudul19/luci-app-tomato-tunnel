@@ -32,13 +32,15 @@ case "$1" in
 		"$BIN" version
 		;;
 	xray-version)
-		for b in /usr/libexec/tomato-tunnel/xray /usr/bin/xray; do
-			if [ -x "$b" ]; then
-				"$b" version 2>/dev/null | head -n 1
-				exit 0
-			fi
-		done
-		echo ""
+		if [ -x /usr/libexec/tomato-tunnel/xray ]; then
+			/usr/libexec/tomato-tunnel/xray version 2>/dev/null | head -n 1
+		else
+			echo ""
+		fi
+		;;
+	xray-system)
+		b=$(command -v xray 2>/dev/null)
+		case "$b" in ''|/usr/libexec/tomato-tunnel/*) echo "" ;; *) "$b" version 2>/dev/null | head -n 1 ;; esac
 		;;
 	switch)
 		case "$2" in ''|*[!A-Za-z0-9_]*) echo "bad profile"; exit 1 ;; esac
@@ -195,7 +197,7 @@ case "$1" in
 		echo ok
 		;;
 	*)
-		echo "usage: $0 status|start|stop|restart|usage|usage-reset|reload|changeip|changeip-detect|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|xray-version|xray-install|xray-remove|xray-log|ifaces|banner-set|banner-clear" >&2
+		echo "usage: $0 status|start|stop|restart|usage|usage-reset|reload|changeip|changeip-detect|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|xray-version|xray-system|xray-install|xray-remove|xray-log|ifaces|banner-set|banner-clear" >&2
 		exit 2
 		;;
 esac

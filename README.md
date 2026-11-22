@@ -123,7 +123,7 @@ OpenWrt 25.x and newer (apk):
 ```sh
 cat /etc/apk/arch
 apk update
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.3.0_aarch64_generic.apk
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.3.1_aarch64_generic.apk
 ```
 
 OpenWrt 23.05 and 24.10 (opkg):
@@ -131,7 +131,7 @@ OpenWrt 23.05 and 24.10 (opkg):
 ```sh
 opkg print-architecture
 opkg update
-opkg install /tmp/luci-app-tomato-tunnel_1.3.0_aarch64_generic.ipk
+opkg install /tmp/luci-app-tomato-tunnel_1.3.1_aarch64_generic.ipk
 ```
 
 Open LuCI, go to Services > Tomato Tunnel, add or import an account and press

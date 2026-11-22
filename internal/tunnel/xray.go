@@ -29,7 +29,7 @@ type XrayOpts struct {
 	RunDir        string
 }
 
-var XrayPaths = []string{"/usr/libexec/tomato-tunnel/xray", "/usr/bin/xray"}
+var XrayPaths = []string{"/usr/libexec/tomato-tunnel/xray"}
 
 func XrayBin() string {
 	for _, p := range XrayPaths {
@@ -37,13 +37,10 @@ func XrayBin() string {
 			return p
 		}
 	}
-	if p, err := exec.LookPath("xray"); err == nil {
-		return p
-	}
 	return ""
 }
 
-var ErrNoXray = errors.New("Xray is not installed. Install the tomato-tunnel-xray package (or xray-core) first")
+var ErrNoXray = errors.New("the Xray add-on is not installed. Install it in Settings › About & update › Xray add-on (a system xray-core is not used)")
 
 var adDomains = []string{
 	"doubleclick.net", "googlesyndication.com", "googleadservices.com", "google-analytics.com",
