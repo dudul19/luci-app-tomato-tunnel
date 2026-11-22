@@ -1,0 +1,90 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"runtime"
+	"runtime/debug"
+	"syscall"
+
+	"github.com/xtls/xray-core/core"
+
+	_ "github.com/xtls/xray-core/app/dispatcher"
+	_ "github.com/xtls/xray-core/app/dns"
+	_ "github.com/xtls/xray-core/app/log"
+	_ "github.com/xtls/xray-core/app/policy"
+	_ "github.com/xtls/xray-core/app/proxyman/inbound"
+	_ "github.com/xtls/xray-core/app/proxyman/outbound"
+	_ "github.com/xtls/xray-core/app/router"
+
+	_ "github.com/xtls/xray-core/proxy/blackhole"
+	_ "github.com/xtls/xray-core/proxy/freedom"
+	_ "github.com/xtls/xray-core/proxy/socks"
+	_ "github.com/xtls/xray-core/proxy/trojan"
+	_ "github.com/xtls/xray-core/proxy/vless/outbound"
+	_ "github.com/xtls/xray-core/proxy/vmess/outbound"
+
+	_ "github.com/xtls/xray-core/transport/internet/grpc"
+	_ "github.com/xtls/xray-core/transport/internet/headers/noop"
+	_ "github.com/xtls/xray-core/transport/internet/httpupgrade"
+	_ "github.com/xtls/xray-core/transport/internet/reality"
+	_ "github.com/xtls/xray-core/transport/internet/splithttp"
+	_ "github.com/xtls/xray-core/transport/internet/tcp"
+	_ "github.com/xtls/xray-core/transport/internet/tls"
+	_ "github.com/xtls/xray-core/transport/internet/udp"
+	_ "github.com/xtls/xray-core/transport/internet/websocket"
+
+	_ "github.com/xtls/xray-core/main/json"
+)
+
+func main() {
+	cfg := flag.String("c", "", "config file")
+	test := flag.Bool("test", false, "test config only")
+	ver := flag.Bool("version", false, "print version")
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		os.Args[1] = "-version"
+	}
+	if len(os.Args) > 1 && os.Args[1] == "run" {
+		os.Args = append(os.Args[:1], os.Args[2:]...)
+	}
+	flag.Parse()
+	if *ver {
+		fmt.Printf("Xray %s (Tomato Tunnel build, %s %s/%s)\n", core.Version(), runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		return
+	}
+	if *cfg == "" {
+		fmt.Fprintln(os.Stderr, "usage: xray -c config.json [-test]")
+		os.Exit(2)
+	}
+	f, err := os.Open(*cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(23)
+	}
+	c, err := core.LoadConfig("json", f)
+	f.Close()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+		os.Exit(23)
+	}
+	inst, err := core.New(c)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+		os.Exit(23)
+	}
+	if *test {
+		fmt.Println("Configuration OK.")
+		return
+	}
+	if err := inst.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, "start:", err)
+		os.Exit(1)
+	}
+	debug.FreeOSMemory()
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	<-sig
+	inst.Close()
+}

@@ -129,6 +129,13 @@ func (d *Daemon) Dial(addr string) (net.Conn, error) {
 
 func (d *Daemon) NativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
 	p := d.pool.Load()
+	if p != nil && p.IsXray() {
+		u, err := p.XrayUDP(onPacket)
+		if err != nil {
+			return nil, true, err
+		}
+		return u, true, nil
+	}
 	if p == nil || !p.IsZivpn() {
 		return nil, false, nil
 	}
@@ -286,6 +293,17 @@ func (d *Daemon) activate(pool *tunnel.Pool, countReconnect bool) {
 	d.writeStatus()
 }
 
+func XrayOpts(m config.Main) tunnel.XrayOpts {
+	return tunnel.XrayOpts{DirectDomains: m.DirectDomains, BlockAds: m.BlockAds, CheckURL: m.CheckURL, RunDir: RunDir}
+}
+
+func (d *Daemon) newPool(p config.Profile) *tunnel.Pool {
+	m := d.cfg.Main
+	np := tunnel.NewPool(p, m.SSHCompat, m.WanIface, d.log)
+	np.X = XrayOpts(m)
+	return np
+}
+
 func (d *Daemon) markLogin(key string, failed bool) {
 	d.set(func(s *Status) {
 		if !failed {
@@ -350,7 +368,7 @@ func (d *Daemon) supervise(ctx context.Context) {
 				s.PublicIP, s.Country, s.ISP, s.PingMS = "", "", "", 0
 			})
 
-			np := tunnel.NewPool(p, m.SSHCompat, m.WanIface, d.log)
+			np := d.newPool(p)
 			cctx, ccancel := context.WithTimeout(ctx, 60*time.Second)
 			err := np.Connect(cctx, m.Sessions)
 			ccancel()
@@ -466,7 +484,7 @@ func (d *Daemon) trySwitch(ctx context.Context, cur *tunnel.Pool, id, why string
 	d.swCancel = cancel
 	d.mu.Unlock()
 	t0 := time.Now()
-	np := tunnel.NewPool(p, m.SSHCompat, m.WanIface, d.log)
+	np := d.newPool(p)
 	err := np.Connect(sctx, m.Sessions)
 	cerr := sctx.Err()
 	cancel()
@@ -495,7 +513,16 @@ func (d *Daemon) startMeasure(ctx context.Context) {
 	if !d.measuring.CompareAndSwap(false, true) {
 		return
 	}
-	profiles := append([]config.Profile(nil), d.cfg.Profiles...)
+	var profiles []config.Profile
+	cur := ""
+	if p := d.pool.Load(); p != nil {
+		cur = ProfileKey(p.P)
+	}
+	for _, p := range d.cfg.Profiles {
+		if p.Dashboard || ProfileKey(p) == cur {
+			profiles = append(profiles, p)
+		}
+	}
 	m := d.cfg.Main
 	go func() {
 		defer d.measuring.Store(false)
@@ -520,7 +547,7 @@ func (d *Daemon) bestOf(rep LatencyReport, cur config.Profile) (string, int64, i
 			continue
 		}
 		r, ok := rep.Results[k]
-		if !ok || r.MS < 0 || d.loginFailed(k) || p.Expired(time.Now()) {
+		if !ok || !p.Dashboard || r.MS < 0 || d.loginFailed(k) || p.Expired(time.Now()) {
 			continue
 		}
 		if bestMS < 0 || r.MS < bestMS {
@@ -753,7 +780,7 @@ func (d *Daemon) netSetup() error {
 		"NET_MODE="+m.NetMode, "TUN="+TunName, "LAN="+m.LanIface,
 		"REDIR_PORT="+strconv.Itoa(m.RedirPort), "DNS_PORT="+strconv.Itoa(m.DNSPort),
 		"DNS_MODE="+m.DNSMode, "MANAGE_DNSMASQ="+b2s(m.ManageDnsmasq),
-		"BYPASS="+strings.Join(m.Bypass, " "))
+		"BYPASS="+strings.Join(m.Bypass, " "), "BYPASS_ID="+b2s(m.BypassID))
 	cmd := exec.Command(NetScript, "up")
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()

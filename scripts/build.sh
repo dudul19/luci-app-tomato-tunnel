@@ -20,7 +20,14 @@ target() {
 		*) echo "unknown arch $1" >&2; exit 1 ;;
 	esac
 }
-DESC="Tomato Tunnel: SSH tunnel (Direct, Payload, SSL/SNI, WebSocket, WebSocket-TLS, SlowDNS, Enhanced payload) and ZiVPN client with LuCI page. Made by @dudulrealnofek."
+DESC="Tomato Tunnel: SSH tunnel (Direct, Payload, SSL/SNI, WebSocket, WebSocket-TLS, SlowDNS, Enhanced payload), ZiVPN and Xray client with LuCI page. Made by @dudulrealnofek."
+XPKG=tomato-tunnel-xray
+XTAG=v26.11.9
+XVER=${XTAG#v}
+XREL=1
+XSRC=third_party/xray-src
+XDESC="Xray core $XVER for Tomato Tunnel (VLESS, VMess, Trojan; TCP, WebSocket, HTTPUpgrade, gRPC, XHTTP; TLS, REALITY). Client-only build with allowInsecure kept. Optional add-on for luci-app-tomato-tunnel."
+WITH_XRAY=${WITH_XRAY:-1}
 URL="https://github.com/dudul19/tomato-tunnel"
 APK="${APK:-$(ls ../king3399-immortalwrt/immortalwrt-imagebuilder-*/staging_dir/host/bin/apk 2>/dev/null | head -1)}"
 
@@ -33,6 +40,17 @@ echo "== go test"
 go test ./internal/... >/dev/null
 
 (cd "$HEVDIR" && sha256sum -c --quiet SHA256SUMS)
+
+xray_src() {
+	if [ ! -d "$XSRC/core/.git" ]; then
+		echo "== clone Xray-core $XTAG"
+		git clone -q --depth 1 --branch "$XTAG" https://github.com/XTLS/Xray-core.git "$XSRC/core"
+		(cd "$XSRC/core" && git apply ../tomato.patch)
+	fi
+	mkdir -p "$XSRC/core/main/ttxray"
+	cp "$XSRC/ttxray/main.go.in" "$XSRC/core/main/ttxray/main.go"
+}
+[ "$WITH_XRAY" = 1 ] && xray_src
 
 stage() {
 	local arch=$1 goarch sub hev key
@@ -58,6 +76,54 @@ stage() {
 }
 
 rm -f "$OUT/${PKG}_${VERSION}_"* "$OUT/sha256sums.txt"
+[ "$WITH_XRAY" = 1 ] && rm -f "$OUT/${XPKG}_${XVER}_"*
+
+xray_pkg() {
+	local arch=$1 goarch sub hev key XR XI XSIZE
+	read -r goarch sub hev <<<"$(target "$arch")"
+	key="$goarch-$sub"
+	XR="$WORK/xroot-$key"
+	if [ ! -d "$XR" ]; then
+		echo "== xray build ($goarch $sub)"
+		local env=(CGO_ENABLED=0 GOOS=linux GOARCH=$goarch)
+		[ "$goarch" = arm ] && env+=(GOARM=$sub)
+		case "$goarch" in mips|mipsle) env+=(GOMIPS=$sub) ;; esac
+		(cd "$XSRC/core" && env "${env[@]}" go build -trimpath -ldflags "-s -w -buildid=" -o "$WORK/xray-$key" ./main/ttxray)
+		install -Dm755 "$WORK/xray-$key" "$XR/usr/libexec/tomato-tunnel/xray"
+		install -Dm644 "$XSRC/LICENSE.xray" "$XR/usr/share/doc/$XPKG/LICENSE"
+		find "$XR" -type d -exec chmod 755 {} +
+	fi
+	XSIZE=$(du -sb "$XR" | cut -f1)
+	XI="$WORK/xipk-$arch"
+	mkdir -p "$XI/control"
+	cat > "$XI/control/control" <<EOF
+Package: $XPKG
+Version: $XVER-r$XREL
+Depends: $PKG
+Source: https://github.com/XTLS/Xray-core
+SourceName: $XPKG
+License: MPL-2.0
+Section: net
+Maintainer: @dudulrealnofek <$URL>
+Architecture: $arch
+Installed-Size: $XSIZE
+Description: $XDESC
+EOF
+	echo "2.0" > "$XI/debian-binary"
+	fakeroot -- tar --format=gnu --sort=name --mtime=@0 --numeric-owner --owner=0 --group=0 -czf "$XI/control.tar.gz" -C "$XI/control" .
+	fakeroot -- tar --format=gnu --sort=name --mtime=@0 --numeric-owner --owner=0 --group=0 -czf "$XI/data.tar.gz" -C "$XR" .
+	fakeroot -- tar --format=gnu --mtime=@0 --numeric-owner --owner=0 --group=0 -czf "$OUT/${XPKG}_${XVER}_${arch}.ipk" -C "$XI" ./debian-binary ./data.tar.gz ./control.tar.gz
+	echo "   $OUT/${XPKG}_${XVER}_${arch}.ipk"
+	if [ -n "$APK" ] && [ -x "$APK" ]; then
+		unshare -r -- "$APK" mkpkg \
+			--info "name:$XPKG" --info "version:$XVER-r$XREL" --info "arch:$arch" \
+			--info "description:$XDESC" --info "license:MPL-2.0" --info "url:https://github.com/XTLS/Xray-core" \
+			--info "maintainer:@dudulrealnofek" --info "origin:$XPKG" \
+			--info "depends:$PKG" \
+			--files "$XR" --output "$OUT/${XPKG}_${XVER}_${arch}.apk"
+		echo "   $OUT/${XPKG}_${XVER}_${arch}.apk"
+	fi
+}
 
 for ARCH in $ARCHS; do
 	stage "$ARCH"
@@ -103,8 +169,9 @@ EOF
 	else
 		echo "   (skipping .apk: set APK=/path/to/apk-tools-3)"
 	fi
+	[ "$WITH_XRAY" = 1 ] && xray_pkg "$ARCH"
 done
 
-(cd "$OUT" && sha256sum ${PKG}_${VERSION}_* > sha256sums.txt)
+(cd "$OUT" && sha256sum ${PKG}_${VERSION}_* $( [ "$WITH_XRAY" = 1 ] && echo "${XPKG}_${XVER}_*" ) > sha256sums.txt)
 echo "== done"
 cat "$OUT/sha256sums.txt"

@@ -33,6 +33,8 @@ type Pool struct {
 	RX, TX  atomic.Int64
 	streams atomic.Int64
 	zv      client.Client
+	xr      *xrayProc
+	X       XrayOpts
 }
 
 type slot struct {
@@ -49,6 +51,9 @@ func NewPool(p config.Profile, compat, iface string, log *logx.Logger) *Pool {
 func (p *Pool) Connect(ctx context.Context, n int) error {
 	if p.IsZivpn() {
 		return p.connectZivpn(ctx)
+	}
+	if p.IsXray() {
+		return p.connectXray(ctx)
 	}
 	c, info, err := p.open(ctx, 1)
 	if err != nil {
@@ -216,7 +221,7 @@ func (p *Pool) Dead() <-chan struct{} { return p.dead }
 func (p *Pool) Sessions() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.zv != nil {
+	if p.zv != nil || p.xr != nil {
 		return 1
 	}
 	return len(p.slots)
@@ -239,6 +244,9 @@ var ErrNoSession = errors.New("tunnel not connected")
 func (p *Pool) Dial(addr string) (net.Conn, error) {
 	if p.IsZivpn() {
 		return p.dialZivpn(addr)
+	}
+	if p.IsXray() {
+		return p.dialXray(addr)
 	}
 	s := p.pick()
 	if s == nil {
@@ -281,9 +289,14 @@ func (p *Pool) Close() {
 	p.slots = nil
 	zv := p.zv
 	p.zv = nil
+	xr := p.xr
+	p.xr = nil
 	p.mu.Unlock()
 	if zv != nil {
 		zv.Close()
+	}
+	if xr != nil {
+		xr.stop()
 	}
 	p.cancel()
 	for _, s := range slots {

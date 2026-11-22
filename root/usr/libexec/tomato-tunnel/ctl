@@ -31,6 +31,15 @@ case "$1" in
 	version)
 		"$BIN" version
 		;;
+	xray-version)
+		for b in /usr/libexec/tomato-tunnel/xray /usr/bin/xray; do
+			if [ -x "$b" ]; then
+				"$b" version 2>/dev/null | head -n 1
+				exit 0
+			fi
+		done
+		echo ""
+		;;
 	switch)
 		case "$2" in ''|*[!A-Za-z0-9_]*) echo "bad profile"; exit 1 ;; esac
 		[ "$(uci -q get "tomato-tunnel.$2")" = profile ] || { echo "profile not found"; exit 1; }
@@ -140,6 +149,20 @@ case "$1" in
 	update-log)
 		cat "$RUN/update.log" 2>/dev/null
 		;;
+	xray-install|xray-remove)
+		mkdir -p "$RUN"
+		echo "starting" > "$RUN/xray.log"
+		act=${1#xray-}
+		if command -v setsid >/dev/null 2>&1; then
+			( setsid "$BIN" xray "$act" >> "$RUN/xray.log" 2>&1 < /dev/null & ) >/dev/null 2>&1
+		else
+			( "$BIN" xray "$act" >> "$RUN/xray.log" 2>&1 < /dev/null & ) >/dev/null 2>&1
+		fi
+		echo started
+		;;
+	xray-log)
+		cat "$RUN/xray.log" 2>/dev/null
+		;;
 	update-cached)
 		cat "$RUN/update.json" 2>/dev/null || echo '{}'
 		;;
@@ -172,7 +195,7 @@ case "$1" in
 		echo ok
 		;;
 	*)
-		echo "usage: $0 status|start|stop|restart|usage|usage-reset|reload|changeip|changeip-detect|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|ifaces|banner-set|banner-clear" >&2
+		echo "usage: $0 status|start|stop|restart|usage|usage-reset|reload|changeip|changeip-detect|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|xray-version|xray-install|xray-remove|xray-log|ifaces|banner-set|banner-clear" >&2
 		exit 2
 		;;
 esac

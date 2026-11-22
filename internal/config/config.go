@@ -38,6 +38,9 @@ type Main struct {
 	DNSServer     string
 	ManageDnsmasq bool
 	Bypass        []string
+	BypassID      bool
+	BlockAds      bool
+	DirectDomains []string
 	LogLevel      string
 	UpdateRepo    string
 	UpdateChannel string
@@ -97,6 +100,24 @@ type Profile struct {
 	DNSType    string
 	Order      int
 	Expires    string
+	Dashboard  bool
+
+	XProto   string
+	UUID     string
+	XNet     string
+	XPath    string
+	XHost    string
+	XService string
+	XMode    string
+	XFlow    string
+	XSec     string
+	SNI      string
+	FP       string
+	PBK      string
+	SID      string
+	SpiderX  string
+	VCN      string
+	PCS      string
 }
 
 func (p Profile) ExpiryTime() (time.Time, bool) {
@@ -256,6 +277,15 @@ func readMain(m *Main, s *uci.Section) {
 	for _, v := range strings.FieldsFunc(s.Get("ip_prefix", ""), func(r rune) bool { return r == ',' || r == ' ' }) {
 		ip.Prefix = append(ip.Prefix, v)
 	}
+	m.BypassID = b(s, "bypass_id", m.BypassID)
+	m.BlockAds = b(s, "block_ads", m.BlockAds)
+	for _, v := range s.Lists["direct_domain"] {
+		v = strings.ToLower(strings.TrimSpace(strings.SplitN(v, "#", 2)[0]))
+		v = strings.TrimPrefix(strings.TrimPrefix(v, "*."), ".")
+		if v != "" && !strings.ContainsAny(v, " /\\\"") {
+			m.DirectDomains = append(m.DirectDomains, v)
+		}
+	}
 	for _, v := range s.Lists["bypass"] {
 		v = strings.TrimSpace(strings.SplitN(v, "#", 2)[0])
 		if v != "" {
@@ -268,7 +298,7 @@ func readProfile(s *uci.Section) Profile {
 	p := Profile{
 		ID:         s.Name,
 		Name:       s.Get("name", s.Name),
-		Type:       oneOf(s.Get("type", "ssh"), "ssh", "ssh", "zivpn"),
+		Type:       oneOf(s.Get("type", "ssh"), "ssh", "ssh", "zivpn", "xray"),
 		Mode:       oneOf(s.Get("mode", ""), "", "direct", "payload", "ssl", "ws", "wss", "dns"),
 		Enhanced:   b(s, "enhanced", false),
 		Insecure:   b(s, "insecure", true),
@@ -287,6 +317,23 @@ func readProfile(s *uci.Section) Profile {
 		DNSType:    oneOf(strings.ToLower(s.Get("dns_type", "auto")), "auto", "auto", "txt", "null", "cname", "ns", "mx", "srv"),
 		Order:      n(s, "order", 0, 0, 100000),
 		Expires:    strings.TrimSpace(s.Get("expires", "")),
+		Dashboard:  b(s, "dashboard", true),
+		XProto:     oneOf(strings.ToLower(s.Get("x_proto", "vless")), "vless", "vless", "vmess", "trojan"),
+		UUID:       strings.TrimSpace(s.Get("uuid", "")),
+		XNet:       oneOf(strings.ToLower(s.Get("x_net", "tcp")), "tcp", "tcp", "ws", "httpupgrade", "grpc", "xhttp"),
+		XPath:      strings.TrimSpace(s.Get("x_path", "")),
+		XHost:      strings.TrimSpace(s.Get("x_host", "")),
+		XService:   strings.TrimSpace(s.Get("x_service", "")),
+		XMode:      oneOf(s.Get("x_mode", "auto"), "auto", "auto", "packet-up", "stream-up", "stream-one"),
+		XFlow:      oneOf(s.Get("x_flow", ""), "", "", "xtls-rprx-vision"),
+		XSec:       oneOf(strings.ToLower(s.Get("x_sec", "none")), "none", "none", "tls", "reality"),
+		SNI:        strings.TrimSpace(s.Get("sni", "")),
+		FP:         oneOf(strings.ToLower(s.Get("fp", "chrome")), "chrome", "chrome", "firefox", "safari", "ios", "android", "edge", "random", "randomized"),
+		PBK:        strings.TrimSpace(s.Get("pbk", "")),
+		SID:        strings.TrimSpace(s.Get("sid", "")),
+		SpiderX:    strings.TrimSpace(s.Get("spx", "")),
+		VCN:        strings.TrimSpace(s.Get("vcn", "")),
+		PCS:        strings.TrimSpace(s.Get("pcs", "")),
 	}
 
 	switch p.Mode {
@@ -305,13 +352,22 @@ func readProfile(s *uci.Section) Profile {
 	if !p.UsePayload {
 		p.Enhanced = false
 	}
-	if p.Type == "zivpn" {
+	if p.Type == "zivpn" || p.Type == "xray" {
 		p.UsePayload, p.UseTLS, p.UseDNS, p.Enhanced, p.Proxy, p.UDPGW = false, false, false, false, "", 0
+	}
+	if p.Type == "xray" {
+		p.normalizeXray()
 	}
 	p.Mode = p.Label()
 	def := DefaultPort(p.UseTLS, p.UsePayload)
-	if p.Type == "zivpn" {
+	switch p.Type {
+	case "zivpn":
 		def = 5667
+	case "xray":
+		def = 443
+		if p.XSec == "none" {
+			def = 80
+		}
 	}
 	p.Port = n(s, "port", def, 1, 65535)
 	if p.UA == "" {
@@ -330,9 +386,38 @@ func DefaultPort(useTLS, usePayload bool) int {
 	return 22
 }
 
+func (p *Profile) normalizeXray() {
+	if p.XSec == "reality" {
+		p.XProto = "vless"
+		if p.XNet == "ws" || p.XNet == "httpupgrade" {
+			p.XNet = "tcp"
+		}
+	}
+	if p.XProto != "vless" || p.XNet != "tcp" || p.XSec == "none" {
+		p.XFlow = ""
+	}
+}
+
+var xNetName = map[string]string{"tcp": "TCP", "ws": "WS", "httpupgrade": "HTTPUpgrade", "grpc": "gRPC", "xhttp": "XHTTP"}
+var xProtoName = map[string]string{"vless": "VLESS", "vmess": "VMess", "trojan": "Trojan"}
+
+func (p Profile) XrayLabel() string {
+	l := xProtoName[p.XProto] + " " + xNetName[p.XNet]
+	switch p.XSec {
+	case "tls":
+		l += " TLS"
+	case "reality":
+		l += " REALITY"
+	}
+	return l
+}
+
 func (p Profile) Label() string {
 	if p.Type == "zivpn" {
 		return "ZiVPN (UDP)"
+	}
+	if p.Type == "xray" {
+		return "Xray " + p.XrayLabel()
 	}
 	l := "SSH"
 	if !p.UsePayload && !p.UseTLS && !p.UseDNS {
@@ -354,6 +439,21 @@ func (p Profile) Label() string {
 }
 
 func (p Profile) Validate() error {
+	if p.Type == "xray" {
+		if p.Host == "" {
+			return fmt.Errorf("profile %q: server address is empty", p.Name)
+		}
+		if p.XProto == "trojan" && p.Pass == "" {
+			return fmt.Errorf("profile %q: Trojan password is empty", p.Name)
+		}
+		if p.XProto != "trojan" && p.UUID == "" {
+			return fmt.Errorf("profile %q: UUID is empty", p.Name)
+		}
+		if p.XSec == "reality" && p.PBK == "" {
+			return fmt.Errorf("profile %q: REALITY needs the public key (pbk)", p.Name)
+		}
+		return nil
+	}
 	if p.Type == "zivpn" {
 		if p.Host == "" {
 			return fmt.Errorf("profile %q: server host is empty", p.Name)
@@ -391,8 +491,13 @@ func (c *Config) Ordered() []Profile {
 			break
 		}
 	}
-	out := append([]Profile{}, c.Profiles[start:]...)
-	return append(out, c.Profiles[:start]...)
+	out := []Profile{c.Profiles[start]}
+	for _, p := range append(append([]Profile{}, c.Profiles[start+1:]...), c.Profiles[:start]...) {
+		if p.Dashboard {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (c *Config) Find(id string) (Profile, bool) {

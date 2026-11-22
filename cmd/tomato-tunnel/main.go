@@ -23,7 +23,7 @@ import (
 var version = "dev"
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Tomato Tunnel %s — SSH and ZiVPN tunnel for OpenWrt · made by @dudulrealnofek
+	fmt.Fprintf(os.Stderr, `Tomato Tunnel %s — SSH, ZiVPN and Xray tunnel for OpenWrt · made by @dudulrealnofek
 
 usage:
   tomato-tunnel run [-c config] [-f]     run the tunnel (procd starts this)
@@ -33,6 +33,7 @@ usage:
   tomato-tunnel changeip-detect          list AT ports, ModemManager modems, ADB phones
   tomato-tunnel update check             check GitHub for a newer release (JSON)
   tomato-tunnel update install           download, verify and install it
+  tomato-tunnel xray install|remove      add or remove the Xray add-on (from GitHub)
   tomato-tunnel version
 `, version)
 	os.Exit(2)
@@ -106,6 +107,11 @@ func main() {
 			usage()
 		}
 		os.Exit(doUpdate(os.Args[2]))
+	case "xray":
+		if len(os.Args) < 3 {
+			usage()
+		}
+		os.Exit(doXray(os.Args[2]))
 	case "version", "-v", "--version":
 		fmt.Println(version)
 	default:
@@ -156,6 +162,7 @@ func test(cfgPath, id string) int {
 	log.SetLevel("debug")
 	start := time.Now()
 	pool := tunnel.NewPool(p, cfg.Main.SSHCompat, cfg.Main.WanIface, log)
+	pool.X = daemon.XrayOpts(cfg.Main)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	err = pool.Connect(ctx, 1)
 	cancel()
@@ -218,6 +225,37 @@ func updateClient(cfg *config.Config) *http.Client {
 		}
 	}
 	return &http.Client{Transport: tr, Timeout: 5 * time.Minute}
+}
+
+func doXray(cmd string) int {
+	switch cmd {
+	case "remove":
+		if err := update.RemoveXray(os.Stdout); err != nil {
+			fmt.Println("error:", err)
+			return 1
+		}
+		return 0
+	case "install":
+	default:
+		usage()
+	}
+	cfg, err := config.Load(config.DefaultPath)
+	if err != nil {
+		cfg = &config.Config{}
+		cfg.Main.UpdateRepo, cfg.Main.UpdateChannel, cfg.Main.SocksPort = "dudul19/tomato-tunnel", "stable", 1080
+	}
+	cl := updateClient(cfg)
+	fmt.Println("checking GitHub")
+	r, err := update.Check(cl, cfg.Main.UpdateRepo, cfg.Main.UpdateChannel, version)
+	if err != nil {
+		fmt.Println("error:", err)
+		return 1
+	}
+	if err := update.InstallXray(cl, r, os.Stdout); err != nil {
+		fmt.Println("error:", err)
+		return 1
+	}
+	return 0
 }
 
 func doUpdate(cmd string) int {

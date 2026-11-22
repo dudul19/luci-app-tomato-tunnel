@@ -13,10 +13,56 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
-const PkgName = "luci-app-tomato-tunnel"
+const (
+	PkgName  = "luci-app-tomato-tunnel"
+	XrayPkg  = "tomato-tunnel-xray"
+	XrayPath = "/usr/libexec/tomato-tunnel/xray"
+	XrayNeed = 40 << 20
+)
+
+func XrayInstalled() bool {
+	st, err := os.Stat(XrayPath)
+	return err == nil && st.Mode().IsRegular()
+}
+
+func freeBytes(path string) (int64, bool) {
+	var fs syscall.Statfs_t
+	if syscall.Statfs(path, &fs) != nil {
+		return 0, false
+	}
+	return int64(fs.Bavail) * int64(fs.Bsize), true
+}
+
+func InstallXray(cl *http.Client, r *Result, w io.Writer) error {
+	if free, ok := freeBytes("/usr/libexec"); ok && free < XrayNeed {
+		return fmt.Errorf("not enough flash space: %d MB free, Xray needs about %d MB", free>>20, XrayNeed>>20)
+	}
+	if err := installPkg(cl, r, XrayPkg, w); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "installed Xray from v%s\n", r.Latest)
+	return nil
+}
+
+func RemoveXray(w io.Writer) error {
+	mgr, _ := PkgManager()
+	var cmd *exec.Cmd
+	if mgr == "apk" {
+		cmd = exec.Command("apk", "del", XrayPkg)
+	} else {
+		cmd = exec.Command("opkg", "remove", XrayPkg)
+	}
+	cmd.Stdout, cmd.Stderr = w, w
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s failed: %v", mgr, err)
+	}
+	fmt.Fprintln(w, "removed Xray")
+	return nil
+}
 
 var File = func() string {
 	if d := os.Getenv("TT_RUNDIR"); d != "" {
@@ -167,6 +213,20 @@ func PkgManager() (string, []string) {
 }
 
 func Install(cl *http.Client, r *Result, w io.Writer) error {
+	xr := XrayInstalled()
+	if err := installPkg(cl, r, PkgName, w); err != nil {
+		return err
+	}
+	if xr {
+		if err := installPkg(cl, r, XrayPkg, w); err != nil {
+			fmt.Fprintf(w, "Xray add-on not updated: %v\n", err)
+		}
+	}
+	fmt.Fprintf(w, "installed v%s\n", r.Latest)
+	return nil
+}
+
+func installPkg(cl *http.Client, r *Result, name string, w io.Writer) error {
 	mgr, archs := PkgManager()
 	ext := ".ipk"
 	if mgr == "apk" {
@@ -175,7 +235,7 @@ func Install(cl *http.Client, r *Result, w io.Writer) error {
 	var pkg, sums *Asset
 	for _, arch := range archs {
 		for i, a := range r.Assets {
-			if strings.HasPrefix(a.Name, PkgName+"_") && strings.HasSuffix(a.Name, "_"+arch+ext) {
+			if strings.HasPrefix(a.Name, name+"_") && strings.HasSuffix(a.Name, "_"+arch+ext) {
 				pkg = &r.Assets[i]
 				break
 			}
@@ -190,7 +250,7 @@ func Install(cl *http.Client, r *Result, w io.Writer) error {
 		}
 	}
 	if pkg == nil {
-		return fmt.Errorf("release v%s has no %s package for %s", r.Latest, ext, strings.Join(archs, "/"))
+		return fmt.Errorf("release v%s has no %s %s package for %s", r.Latest, name, ext, strings.Join(archs, "/"))
 	}
 	if sums == nil {
 		return fmt.Errorf("release v%s has no sha256sums.txt, refusing to install", r.Latest)
@@ -231,7 +291,6 @@ func Install(cl *http.Client, r *Result, w io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("%s failed: %v", mgr, err)
 	}
-	fmt.Fprintf(w, "installed v%s\n", r.Latest)
 	return nil
 }
 

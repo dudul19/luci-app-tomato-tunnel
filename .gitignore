@@ -2,3 +2,4 @@ dist/
 *.tmp
 mockup/
 promo/
+third_party/xray-src/core/

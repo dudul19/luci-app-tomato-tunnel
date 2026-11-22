@@ -5,6 +5,8 @@ PREF_MAIN=1070
 PREF_BYPASS=1075
 PREF_TUN=1080
 STATE=/etc/tomato-tunnel
+IDLIST=/usr/share/tomato-tunnel/cidr-id.txt
+IDMARK=0x7454
 DNSBAK=$STATE/dnsmasq.bak
 
 TUN=${TUN:-tt0}
@@ -44,6 +46,7 @@ tun_up() {
 		ip $f rule add pref $PREF_BYPASS from "$b" lookup main 2>/dev/null
 		ip $f rule add pref $PREF_BYPASS to "$b" lookup main 2>/dev/null
 	done
+	byp_id_up
 	fw_allow
 	acct_up
 	if ! have_nft; then
@@ -77,6 +80,32 @@ table inet tomato_tunnel_acct {
 NFT
 }
 
+id_elements() {
+	tr '\n' ',' < "$IDLIST" | sed 's/,*$//; s/,/, /g'
+}
+
+byp_id_up() {
+	have_nft && nft delete table inet tomato_tunnel_byp 2>/dev/null
+	[ "$BYPASS_ID" = 1 ] || return 0
+	[ -s "$IDLIST" ] || { log "Indonesian IP list missing"; return 0; }
+	have_nft || { log "Indonesian IPs direct needs nftables"; return 0; }
+	nft -f - <<NFT || { log "Indonesian IPs direct: nft failed"; return 0; }
+table inet tomato_tunnel_byp {
+	set id4 { type ipv4_addr; flags interval; auto-merge; elements = { $(id_elements) } }
+	chain pre {
+		type filter hook prerouting priority mangle - 5; policy accept;
+		iifname "$LAN" ip daddr @id4 meta mark set $IDMARK
+	}
+}
+NFT
+	ip -4 rule add pref $PREF_BYPASS fwmark $IDMARK lookup main 2>/dev/null
+	log "Indonesian IPs go direct ($(wc -l < "$IDLIST") ranges)"
+}
+
+byp_id_down() {
+	have_nft && nft delete table inet tomato_tunnel_byp 2>/dev/null
+}
+
 acct_down() {
 	have_nft && nft delete table inet tomato_tunnel_acct 2>/dev/null
 }
@@ -89,6 +118,7 @@ fw_revoke() {
 }
 
 tun_down() {
+	byp_id_down
 	acct_down
 	fw_revoke
 	rules_del
@@ -108,6 +138,10 @@ redir_up() {
 	done
 	if have_nft; then
 		local set4=$(echo $private4 | sed 's/ /, /g')
+		if [ "$BYPASS_ID" = 1 ] && [ -s "$IDLIST" ]; then
+			set4="$set4, $(id_elements)"
+			log "Indonesian IPs go direct"
+		fi
 		nft -f - <<NFT || return 1
 table ip tomato_tunnel {
 	set skip_to { type ipv4_addr; flags interval; auto-merge; elements = { $set4$by } }
