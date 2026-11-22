@@ -5,9 +5,9 @@ SSH is the base, and you add the layers you need on top of it.
 
 ## Preview
 
-![Status page](docs/screenshots/desktop-status.png)
+![Dashboard](docs/screenshots/dashboard.png)
 
-Screenshot taken on ImmortalWrt with the footstrap theme. Public IP and ISP are blurred.
+Dashboard of v1.1.0 on ImmortalWrt with the Argon theme. Public IP, ISP and server domains are blurred.
 
 ## Connection types
 
