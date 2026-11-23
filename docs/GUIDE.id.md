@@ -1,5 +1,7 @@
 # Panduan Tomato Tunnel
 
+[English](GUIDE.md) · **Bahasa Indonesia**
+
 Panduan lengkap semua fitur Tomato Tunnel sampai **versi 1.6.0**: apa fungsinya, di mana tempatnya, dan cara memakainya.
 
 Nama menu dan tombol ditulis dalam bahasa Inggris, sama seperti yang tampil di LuCI.
