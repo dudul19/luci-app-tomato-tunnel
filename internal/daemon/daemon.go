@@ -111,6 +111,10 @@ type Daemon struct {
 	day    int
 
 	netUp    bool
+	hevPort  int
+	direct   atomic.Bool
+	tunRX    int64
+	tunTX    int64
 	hev      *exec.Cmd
 	hevDone  chan struct{}
 	hevFails int
@@ -294,7 +298,50 @@ func (d *Daemon) activate(pool *tunnel.Pool, countReconnect bool) {
 	d.st.ServerMsg = pool.Info.ServerMsg
 	delete(d.st.LoginFailed, ProfileKey(p))
 	d.mu.Unlock()
+	d.retargetHev()
 	d.writeStatus()
+}
+
+func (d *Daemon) hevTarget() (string, int) {
+	m := d.cfg.Main
+	if p := d.pool.Load(); p != nil && p.IsXray() {
+		if port := p.XrayPort(); port > 0 {
+			return "127.0.0.1", port
+		}
+	}
+	host := m.SocksListen
+	if host == "0.0.0.0" || host == "" {
+		host = "127.0.0.1"
+	}
+	return host, m.SocksPort
+}
+
+func (d *Daemon) retargetHev() {
+	if d.cfg.Main.NetMode != "tun" || !d.netUp || d.hev == nil {
+		return
+	}
+	if _, port := d.hevTarget(); port == d.hevPort {
+		return
+	}
+	d.stopHev()
+	if err := d.startHev(); err != nil {
+		d.log.Errorf("tun", "%v", err)
+		return
+	}
+	exec.Command(NetScript, "routes").Run()
+}
+
+func (d *Daemon) stopHev() {
+	if d.hev == nil || d.hev.Process == nil {
+		return
+	}
+	d.hev.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-d.hevDone:
+	case <-time.After(3 * time.Second):
+		d.hev.Process.Kill()
+		<-d.hevDone
+	}
 }
 
 func XrayOpts(m config.Main) tunnel.XrayOpts {
@@ -821,10 +868,7 @@ func (d *Daemon) startHev() error {
 		bin = b
 	}
 	conf := filepath.Join(RunDir, "hev.yml")
-	host := m.SocksListen
-	if host == "0.0.0.0" || host == "" {
-		host = "127.0.0.1"
-	}
+	host, port := d.hevTarget()
 	yml := fmt.Sprintf(`tunnel:
   name: %s
   mtu: 8500
@@ -838,7 +882,7 @@ socks5:
 misc:
   log-level: warn
   limit-nofile: 65535
-`, TunName, m.SocksPort, host)
+`, TunName, port, host)
 	if err := os.WriteFile(conf, []byte(yml), 0600); err != nil {
 		return err
 	}
@@ -857,6 +901,17 @@ misc:
 		return err
 	}
 	d.hev = cmd
+	d.hevPort = port
+	if port != m.SocksPort {
+		trx, ttx := tunBytes()
+		d.mu.Lock()
+		d.tunRX, d.tunTX = trx, ttx
+		d.mu.Unlock()
+		d.direct.Store(true)
+		d.log.Infof("tun", "TUN goes straight to Xray (port %d)", port)
+	} else {
+		d.direct.Store(false)
+	}
 	done := make(chan struct{})
 	d.hevDone = done
 	go func() { cmd.Wait(); close(done) }()
@@ -968,6 +1023,14 @@ func (d *Daemon) statusLoop(ctx context.Context) {
 		if p != nil {
 			rx, tx := p.RX.Load(), p.TX.Load()
 			d.st.RateRX, d.st.RateTX = rx-d.rxBase, tx-d.txBase
+			if d.direct.Load() {
+				trx, ttx := tunBytes()
+				if trx >= d.tunRX && ttx >= d.tunTX {
+					d.st.RateRX += trx - d.tunRX
+					d.st.RateTX += ttx - d.tunTX
+				}
+				d.tunRX, d.tunTX = trx, ttx
+			}
 			d.st.RX += d.st.RateRX
 			d.st.TX += d.st.RateTX
 			d.rxBase, d.txBase = rx, tx
@@ -1067,4 +1130,16 @@ func b2s(b bool) string {
 		return "1"
 	}
 	return "0"
+}
+
+func tunBytes() (rx, tx int64) {
+	read := func(f string) int64 {
+		b, err := os.ReadFile("/sys/class/net/" + TunName + "/statistics/" + f)
+		if err != nil {
+			return 0
+		}
+		n, _ := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+		return n
+	}
+	return read("rx_bytes"), read("tx_bytes")
 }

@@ -130,12 +130,70 @@ func readAddr(r io.Reader, atyp byte) (string, int, error) {
 	return host, int(binary.BigEndian.Uint16(pb)), nil
 }
 
+type Counted interface {
+	Raw() net.Conn
+	Counted(read, written int64)
+}
+
+var bufPool = sync.Pool{New: func() any { b := make([]byte, 32*1024); return &b }}
+
+func copyConn(dst, src net.Conn) {
+	dc, _ := dst.(Counted)
+	sc, _ := src.(Counted)
+	rd, rs := dst, src
+	if dc != nil {
+		rd = dc.Raw()
+	}
+	if sc != nil {
+		rs = sc.Raw()
+	}
+	count := func(n int64) {
+		if sc != nil {
+			sc.Counted(n, 0)
+		}
+		if dc != nil {
+			dc.Counted(0, n)
+		}
+	}
+	dt, ok1 := rd.(*net.TCPConn)
+	st, ok2 := rs.(*net.TCPConn)
+	if ok1 && ok2 {
+		for {
+			n, err := dt.ReadFrom(&io.LimitedReader{R: st, N: 256 * 1024})
+			if n > 0 {
+				count(n)
+			}
+			if n == 0 || err != nil {
+				return
+			}
+		}
+	}
+	bp := bufPool.Get().(*[]byte)
+	defer bufPool.Put(bp)
+	buf := *bp
+	for {
+		n, err := rs.Read(buf)
+		if n > 0 {
+			w, werr := rd.Write(buf[:n])
+			if w > 0 {
+				count(int64(w))
+			}
+			if werr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
 func Relay(a, b net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	cp := func(dst, src net.Conn) {
 		defer wg.Done()
-		io.Copy(dst, src)
+		copyConn(dst, src)
 		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
 			cw.CloseWrite()
 		} else {

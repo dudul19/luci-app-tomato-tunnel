@@ -502,6 +502,8 @@ func socksHandshake(c net.Conn, cmd byte, addr []byte) (*net.UDPAddr, error) {
 	return &net.UDPAddr{IP: ip, Port: int(binary.BigEndian.Uint16(pb))}, nil
 }
 
+func (p *Pool) XrayPort() int { return p.xrayPort() }
+
 func (p *Pool) xrayPort() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

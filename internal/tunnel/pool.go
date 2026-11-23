@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -37,9 +38,15 @@ type Pool struct {
 	X       XrayOpts
 }
 
+var (
+	keepaliveEvery = 15 * time.Second
+	keepaliveWait  = 12 * time.Second
+)
+
 type slot struct {
 	c      *ssh.Client
 	active atomic.Int64
+	probe  atomic.Bool
 }
 
 func NewPool(p config.Profile, compat, iface string, log *logx.Logger) *Pool {
@@ -123,7 +130,7 @@ func (p *Pool) watch(s *slot, idx int) {
 	go func() {
 		waitErr := make(chan error, 1)
 		go func() { waitErr <- s.c.Wait() }()
-		t := time.NewTicker(15 * time.Second)
+		t := time.NewTicker(keepaliveEvery)
 		defer t.Stop()
 		for {
 			select {
@@ -134,24 +141,62 @@ func (p *Pool) watch(s *slot, idx int) {
 				p.drop(s, idx, err)
 				return
 			case <-t.C:
-				res := make(chan error, 1)
-				go func() {
-					_, _, err := s.c.SendRequest("keepalive@openssh.com", true, nil)
-					res <- err
-				}()
-				select {
-				case err := <-res:
-					if err != nil {
-						s.c.Close()
-					}
-				case <-time.After(12 * time.Second):
-					p.Log.Warnf("ssh", "Session #%d: keepalive timeout", idx)
+				if !p.alive(s, idx) {
 					s.c.Close()
-				case <-p.ctx.Done():
 				}
 			}
 		}
 	}()
+}
+
+func (p *Pool) alive(s *slot, idx int) bool {
+	if s.probe.Load() {
+		if p.channelProbe(s) {
+			return true
+		}
+		p.Log.Warnf("ssh", "Session #%d: server stopped answering", idx)
+		return false
+	}
+	res := make(chan error, 1)
+	go func() {
+		_, _, err := s.c.SendRequest("keepalive@openssh.com", true, nil)
+		res <- err
+	}()
+	select {
+	case err := <-res:
+		return err == nil
+	case <-p.ctx.Done():
+		return true
+	case <-time.After(keepaliveWait):
+	}
+	if p.channelProbe(s) {
+		s.probe.Store(true)
+		p.Log.Infof("ssh", "Session #%d: server does not answer keepalive requests (old Dropbear), using channel check", idx)
+		return true
+	}
+	p.Log.Warnf("ssh", "Session #%d: keepalive timeout", idx)
+	return false
+}
+
+func (p *Pool) channelProbe(s *slot) bool {
+	res := make(chan struct{}, 1)
+	go func() {
+		c, err := s.c.Dial("tcp", "127.0.0.1:1")
+		if err == nil {
+			c.Close()
+		} else if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
+			return
+		}
+		res <- struct{}{}
+	}()
+	select {
+	case <-res:
+		return true
+	case <-p.ctx.Done():
+		return true
+	case <-time.After(keepaliveWait):
+		return false
+	}
 }
 
 func (p *Pool) drop(s *slot, idx int, err error) {
@@ -323,6 +368,13 @@ func (c *countConn) Write(b []byte) (int, error) {
 	n, err := c.Conn.Write(b)
 	c.p.TX.Add(int64(n))
 	return n, err
+}
+
+func (c *countConn) Raw() net.Conn { return c.Conn }
+
+func (c *countConn) Counted(read, written int64) {
+	c.p.RX.Add(read)
+	c.p.TX.Add(written)
 }
 
 func (c *countConn) Close() error {

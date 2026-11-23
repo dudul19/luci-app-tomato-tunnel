@@ -125,6 +125,25 @@ Other features:
 - hev-socks5-tunnel 2.17.1 (static, MIT) is bundled in the package, so it also
   installs on OpenWrt 23.05 where that package is not in the feed
 
+## Performance
+
+![CPU and RAM, SSH vs Xray](docs/benchmark.svg)
+
+Measured on a King3399 (RK3399, 6 cores, 2 GB) running ImmortalWrt in TUN mode,
+idle and while one LAN PC downloads or uploads at 40 to 60 Mbps through the
+tunnel.
+
+- CPU is shown per core: 100% means one CPU core is fully busy. This router has
+  6 cores, so a 112% bar is about 19% of the whole chip. Boxes with slower cores,
+  such as S905X STBs (4x Cortex-A53), need more per core for the same speed.
+- SSH: most of the work is encryption inside `tomato-tunnel` plus the TUN helper
+  (`hev-socks5-tunnel`). About 20 MB of RAM in total.
+- Xray: since 1.5.0 TUN traffic goes straight from the TUN helper to Xray, so
+  `tomato-tunnel` itself stays near 0% during a download (before it was about a
+  third of a core at 60 Mbps). The speed is the same. Xray needs about 40 MB more
+  RAM than SSH.
+- Idle, everything together uses under 4% of one core.
+
 ## Install
 
 Download the file for your router from the Releases page and copy it to `/tmp`.
@@ -134,7 +153,7 @@ OpenWrt 25.x and newer (apk):
 ```sh
 cat /etc/apk/arch
 apk update
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.3.1_aarch64_generic.apk
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.5.0_aarch64_generic.apk
 ```
 
 OpenWrt 23.05 and 24.10 (opkg):
@@ -142,7 +161,7 @@ OpenWrt 23.05 and 24.10 (opkg):
 ```sh
 opkg print-architecture
 opkg update
-opkg install /tmp/luci-app-tomato-tunnel_1.3.1_aarch64_generic.ipk
+opkg install /tmp/luci-app-tomato-tunnel_1.5.0_aarch64_generic.ipk
 ```
 
 Open LuCI, go to Services > Tomato Tunnel, add or import an account and press
