@@ -30,29 +30,36 @@ func envOr(k, def string) string {
 }
 
 type Status struct {
-	State        string           `json:"state"`
-	Message      string           `json:"message"`
-	Profile      string           `json:"profile"`
-	ProfileName  string           `json:"profile_name"`
-	Since        int64            `json:"since"`
-	PublicIP     string           `json:"public_ip"`
-	Country      string           `json:"country"`
-	ISP          string           `json:"isp"`
-	PingMS       int64            `json:"ping_ms"`
-	RateRX       int64            `json:"rate_rx"`
-	RateTX       int64            `json:"rate_tx"`
-	Reconnects   int              `json:"reconnects_today"`
-	Policy       string           `json:"policy"`
-	Switching    string           `json:"switching"`
-	LoginFailed  map[string]int64 `json:"login_failed"`
-	TodayBytes   int64            `json:"today_bytes"`
-	ChangingIP   bool             `json:"changing_ip"`
-	LastIPChange int64            `json:"last_ip_change"`
-	IPChangeMsg  string           `json:"ip_change_msg"`
-	IPChangeOld  string           `json:"ip_change_old"`
-	Version      string           `json:"version"`
-	Updated      int64            `json:"updated"`
-	PID          int              `json:"pid"`
+	State         string           `json:"state"`
+	Message       string           `json:"message"`
+	Profile       string           `json:"profile"`
+	ProfileName   string           `json:"profile_name"`
+	Since         int64            `json:"since"`
+	PublicIP      string           `json:"public_ip"`
+	Country       string           `json:"country"`
+	ISP           string           `json:"isp"`
+	PingMS        int64            `json:"ping_ms"`
+	RateRX        int64            `json:"rate_rx"`
+	RateTX        int64            `json:"rate_tx"`
+	Reconnects    int              `json:"reconnects_today"`
+	Policy        string           `json:"policy"`
+	Switching     string           `json:"switching"`
+	LoginFailed   map[string]int64 `json:"login_failed"`
+	TodayBytes    int64            `json:"today_bytes"`
+	ChangingIP    bool             `json:"changing_ip"`
+	LastIPChange  int64            `json:"last_ip_change"`
+	IPChangeMsg   string           `json:"ip_change_msg"`
+	IPChangeOld   string           `json:"ip_change_old"`
+	IPChangeModem string           `json:"ip_change_modem"`
+	Modems        []struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		IP     string `json:"ip"`
+		Tunnel bool   `json:"tunnel"`
+	} `json:"modems"`
+	Version string `json:"version"`
+	Updated int64  `json:"updated"`
+	PID     int    `json:"pid"`
 }
 
 func readStatus() Status {

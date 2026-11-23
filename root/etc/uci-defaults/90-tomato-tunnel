@@ -37,7 +37,12 @@ if ! uci -q get tomato-tunnel.bot >/dev/null; then
 fi
 chmod 600 /etc/config/tomato-tunnel
 mkdir -p /etc/tomato-tunnel /www/luci-static/tomato-tunnel
-[ -f /etc/tomato-tunnel/banner.img ] && ln -sf /etc/tomato-tunnel/banner.img /www/luci-static/tomato-tunnel/banner.img
+chmod 755 /www/luci-static/tomato-tunnel
+if [ -f /etc/tomato-tunnel/banner.img ]; then
+	rm -f /www/luci-static/tomato-tunnel/banner.img
+	cp /etc/tomato-tunnel/banner.img /www/luci-static/tomato-tunnel/banner.img
+	chmod 644 /etc/tomato-tunnel/banner.img /www/luci-static/tomato-tunnel/banner.img
+fi
 /etc/init.d/tomato-tunnel enable
 /etc/init.d/tomato-tunnel-bot enable
 [ -x /sbin/fw4 ] && fw4 -q reload

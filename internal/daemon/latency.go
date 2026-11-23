@@ -2,8 +2,8 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"os"
 	"sync"
 	"time"

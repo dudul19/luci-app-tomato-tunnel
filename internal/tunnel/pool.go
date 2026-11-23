@@ -263,6 +263,19 @@ func (p *Pool) kill() {
 
 func (p *Pool) Dead() <-chan struct{} { return p.dead }
 
+// Alive reports whether the pool has not died yet.
+func (p *Pool) Alive() bool {
+	select {
+	case <-p.dead:
+		return false
+	default:
+		return true
+	}
+}
+
+// Streams is the number of connections open through this pool.
+func (p *Pool) Streams() int64 { return p.streams.Load() }
+
 func (p *Pool) Sessions() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

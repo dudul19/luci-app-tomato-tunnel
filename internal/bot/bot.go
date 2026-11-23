@@ -501,12 +501,12 @@ func (b *Bot) onCallback(ctx context.Context, cb *tgCallback) {
 		if b.denyAction(ctx, cb, "changeip") {
 			return
 		}
-		b.changeIPAsk(ctx, chat, msg)
+		b.changeIPAsk(ctx, chat, msg, arg)
 	case "ipy":
 		if b.denyAction(ctx, cb, "changeip") {
 			return
 		}
-		b.changeIP(ctx, chat, msg)
+		b.changeIP(ctx, chat, msg, arg)
 	case "rs":
 		if b.denyAction(ctx, cb, "control") {
 			return
@@ -683,6 +683,8 @@ func (b *Bot) policyText(p string) string {
 		return "Manual"
 	case "auto":
 		return "Auto"
+	case "balance":
+		return "Balance"
 	}
 	return "Fallback"
 }
@@ -858,7 +860,7 @@ func (b *Bot) profiles(ctx context.Context, chat, drop int64) {
 	c.table([]string{"No", b.t("Profile", "Profil"), b.t("Type", "Tipe"), "Ping"}, rows)
 	c.note(b.t("● = active profile.", "● = profil aktif."))
 	mode := []Button{}
-	for _, x := range []string{"manual", "fallback", "auto"} {
+	for _, x := range []string{"manual", "fallback", "auto", "balance"} {
 		st := ""
 		if x == pol {
 			st = "success"
@@ -1010,22 +1012,76 @@ func (b *Bot) ipMethod(c config.ChangeIP) string {
 	return b.t("Off", "Mati")
 }
 
-func (b *Bot) changeIPAsk(ctx context.Context, chat, drop int64) {
+func (b *Bot) changeIPAsk(ctx context.Context, chat, drop int64, id string) {
 	cc, err := config.Load(b.path)
-	if err != nil || cc.Main.IP.Method == "" || cc.Main.IP.Method == "none" {
+	if err != nil || len(cc.Main.Modems) == 0 {
 		b.show(ctx, chat, newCard("Change IP").text(b.t("Change IP is off.", "Change IP belum aktif.")).text(b.t("Set it up in LuCI › Settings › Change IP.", "Atur di LuCI › Settings › Change IP.")).msg(), Keyboard{{b.mainBtn()}}, drop)
 		return
 	}
-	c := newCard("Change IP").kv(b.t("Method", "Metode"), b.ipMethod(cc.Main.IP)).text(b.t("Internet drops for about 10–30 s.", "Internet putus sekitar 10–30 detik."))
-	b.show(ctx, chat, c.msg(), Keyboard{{{Text: b.t("Yes, change", "Ya, ganti"), CallbackData: "ipy", Style: "success"}, {Text: b.t("Cancel", "Batal"), CallbackData: "m", Style: "danger"}}}, drop)
+	ms := cc.Main.Modems
+	if len(ms) > 1 && id == "" {
+		st := readStatus()
+		c := newCard("Change IP").text(b.t("Which modem?", "Modem yang mana?"))
+		kb := Keyboard{}
+		for _, m := range ms {
+			ip := ""
+			for _, x := range st.Modems {
+				if x.ID == m.ID {
+					ip = x.IP
+					if x.Tunnel {
+						ip += " · tunnel"
+					}
+				}
+			}
+			c.kv(m.Name, b.ipMethod(m)+orEmpty(" · ", ip))
+			kb = append(kb, []Button{{Text: m.Name, CallbackData: "ip:" + m.ID, Style: "success"}})
+		}
+		kb = append(kb, []Button{{Text: b.t("All modems", "Semua modem"), CallbackData: "ip:all"}, b.mainBtn()})
+		b.show(ctx, chat, c.msg(), kb, drop)
+		return
+	}
+	c := newCard("Change IP")
+	switch {
+	case id == "all":
+		c.kv("Modem", b.t("All, one after another", "Semua, bergantian"))
+	default:
+		m := ms[0]
+		if x, ok := cc.Main.Modem(id); ok {
+			m = x
+		}
+		id = m.ID
+		if len(ms) > 1 {
+			c.kv("Modem", m.Name)
+		}
+		c.kv(b.t("Method", "Metode"), b.ipMethod(m))
+	}
+	c.text(b.t("Internet drops for about 10–30 s.", "Internet putus sekitar 10–30 detik."))
+	b.show(ctx, chat, c.msg(), Keyboard{{{Text: b.t("Yes, change", "Ya, ganti"), CallbackData: "ipy:" + id, Style: "success"}, {Text: b.t("Cancel", "Batal"), CallbackData: "m", Style: "danger"}}}, drop)
 }
 
-func (b *Bot) changeIP(ctx context.Context, chat, drop int64) {
+func orEmpty(sep, s string) string {
+	if s == "" {
+		return ""
+	}
+	return sep + s
+}
+
+func (b *Bot) changeIP(ctx context.Context, chat, drop int64, id string) {
 	s := readStatus()
 	cc, _ := config.Load(b.path)
 	method := ""
-	if cc != nil {
-		method = b.ipMethod(cc.Main.IP)
+	if cc != nil && len(cc.Main.Modems) > 0 {
+		m := cc.Main.Modems[0]
+		if x, ok := cc.Main.Modem(id); ok {
+			m = x
+		}
+		method = b.ipMethod(m)
+		if len(cc.Main.Modems) > 1 {
+			method = m.Name + " · " + method
+		}
+		if id == "all" {
+			method = b.t("All modems", "Semua modem")
+		}
 	}
 	b.quietFor("ip", 4*time.Minute)
 	b.quietFor("down", 4*time.Minute)
@@ -1043,10 +1099,10 @@ func (b *Bot) changeIP(ctx context.Context, chat, drop int64) {
 			if st := readStatus(); st.State != "stopped" {
 				r.kv("Tunnel", b.stateText(st.State))
 			}
-			b.result(ctx, chat, r.msg(), Keyboard{{{Text: b.t("Change again", "Ganti lagi"), CallbackData: "ip", Style: "success"}, b.mainBtn()}})
+			b.result(ctx, chat, r.msg(), Keyboard{{{Text: b.t("Change again", "Ganti lagi"), CallbackData: "ipy:" + id, Style: "success"}, b.mainBtn()}})
 		}
 		if s.State == "stopped" {
-			out, _ := runBin(ctx, 4*time.Minute, "changeip")
+			out, _ := runBin(ctx, 4*time.Minute, "changeip", id)
 			var r struct {
 				Old, New, Error string
 				OK              bool
@@ -1061,7 +1117,7 @@ func (b *Bot) changeIP(ctx context.Context, chat, drop int64) {
 			return
 		}
 		before := s.LastIPChange
-		ctl(ctx, "changeip")
+		ctl(ctx, "changeip", id)
 		for time.Since(t0) < 4*time.Minute && ctx.Err() == nil {
 			time.Sleep(2 * time.Second)
 			st := readStatus()

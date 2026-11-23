@@ -212,6 +212,9 @@ func (b *Bot) notifier(ctx context.Context) {
 				} else {
 					c = newCard(b.t("Change IP failed", "Change IP gagal")).kv(b.t("Reason", "Alasan"), s.IPChangeMsg)
 				}
+				if s.IPChangeModem != "" {
+					c.kv("Modem", s.IPChangeModem)
+				}
 				b.broadcast(ctx, "ip", c.msg(), nil)
 			}
 		}

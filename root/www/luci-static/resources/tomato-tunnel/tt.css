@@ -1,4 +1,5 @@
-.tt-banner { position: relative; height: 160px; margin: 0 0 1em; overflow: hidden; background: #1e1b4b; border: 1px solid rgba(0, 0, 0, .35); border-radius: 0; }
+.tt-banner { position: relative; height: 160px; margin: 0 0 1em; overflow: hidden; }
+.tt-banner:not(.plain) { background: #1e1b4b; border: 1px solid rgba(0, 0, 0, .35); border-radius: 0; }
 .tt-banner svg, .tt-banner img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .tt-banner .tt-bt { position: absolute; left: 28px; top: 30px; display: flex; flex-direction: column; gap: 6px; }
 .tt-banner .tt-name { font-size: 36px; font-weight: 800; color: #fff; line-height: 1.1; letter-spacing: -0.01em; }
@@ -404,3 +405,80 @@ svg.tt-wm { background: transparent !important; }
 .tt-pair { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 1.8em; letter-spacing: .25em; margin: .3em 0; }
 .tt-warnc { color: #c58a12; }
 .tt-cgap { fill: currentColor; opacity: .07; }
+/* 1.6: taller banner, wordmark left-aligned and vertically centred */
+.tt-banner { height: 104px; }
+.tt-banner .tt-bt { top: 0; bottom: 0; left: 28px; justify-content: center; align-items: flex-start; gap: 4px; }
+.tt-banner .tt-bt svg.tt-wm { height: 48px; }
+.tt-banner .tt-sub { font-size: 13.5px; }
+@media (max-width: 760px) {
+	.tt-banner { height: 80px; }
+	.tt-banner .tt-bt { left: 16px; }
+	.tt-banner .tt-bt svg.tt-wm { height: 40px; }
+}
+.tt-bthumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.tt-bown { display: flex; gap: .4em; }
+.tt-bown .cbi-button { min-height: 30px; padding: .15em .7em !important; font-size: 12px; font-weight: normal; }
+/* 1.6: modems and IP ranges */
+.tt-mlist .tt-mi { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 1em; }
+.tt-mn, .tt-mip { display: flex; flex-direction: column; gap: .2em; min-width: 0; }
+.tt-mr { display: flex; flex-wrap: wrap; gap: .35em; min-width: 0; }
+.tt-chip { font-size: 12px; border: 1px solid rgba(127, 127, 127, .45); padding: .15em .5em; white-space: nowrap; }
+.tt-mtag { align-self: flex-start; font-size: 11px; font-weight: bold; color: #2b8fd6; border: 1px solid rgba(43, 143, 214, .5); padding: 0 .4em; }
+.tt-mi .tt-pb { display: flex; gap: .4em; flex-wrap: wrap; justify-content: flex-end; }
+.tt-mempty { padding: .5em 0; opacity: .8; }
+.tt-mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .8em; }
+.tt-mcard { display: flex; flex-direction: column; gap: .35em; padding: .8em .9em; border: 1px solid rgba(127, 127, 127, .4); }
+.tt-mcard.on { border: 2px solid #2b8fd6; background: rgba(43, 143, 214, .08); }
+.tt-mch { display: flex; justify-content: space-between; align-items: center; gap: .5em; }
+.tt-mcard .cbi-button { margin-top: .3em; }
+.tt-ranges { display: flex; flex-direction: column; gap: .5em; }
+.tt-rg { display: grid; grid-template-columns: minmax(0, 11em) 1.2em minmax(0, 11em) minmax(0, 1fr) auto; gap: .6em; align-items: center; }
+.tt-rg input.cbi-input-text { width: 100%; min-width: 0; box-sizing: border-box; }
+.tt-rgh { font-size: 12px; font-weight: bold; opacity: .7; }
+.tt-errc { color: #e05252; }
+@media (max-width: 760px) {
+	.tt-mlist .tt-mi { grid-template-columns: minmax(0, 1fr); }
+	.tt-mi .tt-pb { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); justify-content: stretch; }
+	.tt-mi .tt-pb .cbi-button { min-height: 40px; }
+	.tt-rg { grid-template-columns: minmax(0, 1fr) 1em minmax(0, 1fr) auto; }
+	.tt-rg > .tt-ss { grid-column: 1 / -1; grid-row: 2; }
+	.tt-rgh { display: none; }
+}
+/* Balance */
+.tt-tile.bal { border-color: #2b8fd6; border-style: dashed; }
+.tt-tile.bal .tt-radio { border-color: #2b8fd6; background: radial-gradient(circle, #2b8fd6 0 3px, transparent 4px); }
+.tt-bal { border: 1px solid rgba(127, 127, 127, .4); margin: .8em 0; }
+.tt-balr { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.4fr) 6.5em; gap: 1em; padding: .6em .9em; align-items: center; border-top: 1px solid rgba(127, 127, 127, .25); }
+.tt-balh { border-top: 0; font-size: 12px; font-weight: bold; opacity: .7; }
+.tt-balp { display: flex; align-items: center; gap: .6em; }
+.tt-balp .tt-qbar { flex: 1 1 auto; margin: 0; }
+@media (max-width: 760px) {
+	.tt-balr { grid-template-columns: minmax(0, 1fr) auto; }
+	.tt-balr > :nth-child(3) { grid-column: 1 / -1; }
+	.tt-balr > :nth-child(4), .tt-balh { display: none; }
+}
+/* 1.6: four profile modes (Manual, Fallback, Auto, Balance) on one row on phones */
+@media (max-width: 760px) {
+	.tt-sechead .tt-seg.tt-pol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: 1 1 0; min-width: 0; }
+	.tt-sechead .tt-seg.tt-pol .cbi-button { padding: 0 .15em !important; font-size: 12.5px !important; }
+	.tt-sechead > .cbi-button.tt-ic { flex: 0 0 44px; width: 44px !important; min-width: 44px !important; height: 40px !important; }
+}
+@media (max-width: 360px) {
+	.tt-sechead .tt-seg.tt-pol .cbi-button { font-size: 11.5px !important; }
+}
+/* 1.6: the banner is the page header on every tab */
+.tt-banner .tt-bt h2.tt-name { margin: 0 !important; padding: 0 !important; border: 0 !important; background: none !important; line-height: 0; font-size: inherit; }
+.tt-banner .tt-bv { position: absolute; right: 28px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 4px; text-align: right; }
+.tt-banner .tt-ver { font-size: 12px; color: #fde7ef; background: rgba(0, 0, 0, .35); padding: 1px 8px; }
+.tt-banner .tt-bv a.tt-by, .tt-banner .tt-bv a.tt-by:hover { display: inline; font-size: 13px; font-weight: 600; color: #fde68a !important; text-decoration: none; }
+.tt-banner.plain { padding: 0 !important; margin: 0 0 1em !important; min-height: 0 !important; overflow: hidden; }
+.tt-banner.plain::before, .tt-banner.plain::after { display: none !important; }
+.tt-banner.plain .tt-sub { color: inherit; opacity: .75; }
+.tt-banner.plain svg.tt-wm path[fill="#ffffff"] { fill: currentColor; }
+.tt-banner.plain .tt-ver { color: inherit; background: transparent; border: 1px solid rgba(127, 127, 127, .45); }
+.tt-banner.plain .tt-bv a.tt-by, .tt-banner.plain .tt-bv a.tt-by:hover { color: inherit !important; opacity: .85; }
+@media (max-width: 760px) {
+	.tt-banner .tt-bv { right: 16px; }
+	.tt-banner .tt-bv a.tt-by { display: none; }
+	.tt-banner .tt-ver { font-size: 11px; padding: 1px 6px; }
+}

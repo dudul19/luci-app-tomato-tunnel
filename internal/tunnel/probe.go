@@ -24,9 +24,9 @@ func Probe(ctx context.Context, p config.Profile, iface string, tries int) (int6
 	if p.UseDNS {
 		return d.probeDNS(ctx, tries)
 	}
-	host, port := p.Host, p.Port
-	if p.Proxy != "" {
-		h, ps, _ := net.SplitHostPort(p.Proxy)
+	host, port := PickValue(p.Host, "probe"), p.Port
+	if px := PickValue(p.Proxy, "probe"); px != "" {
+		h, ps, _ := net.SplitHostPort(px)
 		pp, _ := strconv.Atoi(ps)
 		host, port = h, pp
 	}

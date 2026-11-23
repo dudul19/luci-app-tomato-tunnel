@@ -56,7 +56,7 @@ case "$1" in
 		fi
 		;;
 	policy)
-		case "$2" in manual|fallback|auto) ;; *) echo "bad policy"; exit 1 ;; esac
+		case "$2" in manual|fallback|auto|balance) ;; *) echo "bad policy"; exit 1 ;; esac
 		uci set tomato-tunnel.main.policy="$2"
 		if [ "$2" = manual ]; then uci set tomato-tunnel.main.failover=0; else uci set tomato-tunnel.main.failover=1; fi
 		uci commit tomato-tunnel
@@ -94,15 +94,16 @@ case "$1" in
 		echo ok
 		;;
 	changeip)
+		target=$(printf '%s' "$2" | tr -cd 'A-Za-z0-9_')
 		if running; then
-			echo changeip >> "$RUN/cmd"
+			echo "changeip $target" >> "$RUN/cmd"
 			kill -USR2 "$pid"
 		else
 			mkdir -p "$RUN"
 			if command -v setsid >/dev/null 2>&1; then
-				( setsid "$BIN" changeip >/dev/null 2>&1 < /dev/null & ) >/dev/null 2>&1
+				( setsid "$BIN" changeip $target >/dev/null 2>&1 < /dev/null & ) >/dev/null 2>&1
 			else
-				( "$BIN" changeip >/dev/null 2>&1 < /dev/null & ) >/dev/null 2>&1
+				( "$BIN" changeip $target >/dev/null 2>&1 < /dev/null & ) >/dev/null 2>&1
 			fi
 		fi
 		echo started
@@ -168,6 +169,13 @@ case "$1" in
 	update-cached)
 		cat "$RUN/update.json" 2>/dev/null || echo '{}'
 		;;
+	wanlist)
+		# OpenWrt interface and its live device: "wan wwan0"
+		for i in $(uci -q show network | sed -n 's/^network\.\([^.=]*\)=interface$/\1/p'); do
+			case "$i" in loopback|lan) continue;; esac
+			echo "$i $(ifstatus "$i" 2>/dev/null | jsonfilter -q -e '@.l3_device')"
+		done
+		;;
 	ifaces)
 		for d in /sys/class/net/*; do
 			n=${d##*/}
@@ -187,9 +195,13 @@ case "$1" in
 				*) rm -f "$f"; echo "only JPG, PNG or WebP"; exit 1 ;;
 			esac
 		fi
+		# rpcd runs with umask 077: new dirs are 700 and the upload is 600,
+		# and uhttpd only serves world-readable files inside /www.
 		mkdir -p /etc/tomato-tunnel "$WWW"
-		mv "$f" "$BANNER"
-		ln -sf "$BANNER" "$WWW/banner.img"
+		chmod 755 "$WWW"
+		mv "$f" "$BANNER" && chmod 644 "$BANNER" || { echo "could not save the image"; exit 1; }
+		rm -f "$WWW/banner.img"
+		cp "$BANNER" "$WWW/banner.img" && chmod 644 "$WWW/banner.img" || { echo "could not publish the image"; exit 1; }
 		echo ok
 		;;
 	banner-clear)
@@ -222,7 +234,7 @@ case "$1" in
 		fi
 		;;
 	*)
-		echo "usage: $0 status|start|stop|restart|usage|usage-reset|reload|changeip|changeip-detect|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|xray-version|xray-system|xray-install|xray-remove|xray-log|ifaces|banner-set|banner-clear|bot-status|bot-pair|bot-restart|bot-test" >&2
+		echo "usage: $0 status|start|stop|restart|usage|usage-reset|reload|changeip|changeip-detect|switch <id>|policy <p>|cancel-switch|latency|latency-cached|log|clear-log|test <id>|update-check|update-install|update-log|update-cached|xray-version|xray-system|xray-install|xray-remove|xray-log|ifaces|wanlist|banner-set|banner-clear|bot-status|bot-pair|bot-restart|bot-test" >&2
 		exit 2
 		;;
 esac

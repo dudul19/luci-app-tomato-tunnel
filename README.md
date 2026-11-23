@@ -19,188 +19,63 @@ ZiVPN works like the ZiVPN app: host, port and password only. Xray accounts
 (VLESS, VMess, Trojan with WebSocket, HTTPUpgrade, gRPC, XHTTP, TLS or REALITY)
 are imported by pasting the link.
 
+**Guide:** [English](docs/GUIDE.md) · [Bahasa Indonesia](docs/GUIDE.id.md). Every
+feature, setting and payload tag is explained there.
+
 ## Preview
 
 ![Dashboard](docs/screenshots/dashboard-v1.2.0.png)
 
 Dashboard of v1.2.0 on ImmortalWrt with the Footstrap theme. Public IP, ISP and server domains are blurred.
 
-## Connection types
+## Features
 
-| Connection | What it does |
-|---|---|
-| SSH Direct | Plain SSH to the server |
-| SSH + Payload | Sends an HTTP payload first (WebSocket, CONNECT, ...) |
-| SSH + Payload + Enhanced | Sends the payload in parts at every `[split]` |
-| SSH + TLS | TLS with a custom SNI, then SSH |
-| SSH + Payload + TLS | TLS with SNI, then the payload, then SSH |
-| SSH + Payload + TLS + Enhanced | Same, with the payload split |
-| SSH + SlowDNS | SSH carried over DNS (dnstt) |
-| SSH + Payload + SlowDNS | Payload sent through the SlowDNS stream |
-| ZiVPN | ZiVPN app protocol (Hysteria2 over QUIC). Carries TCP and UDP, only host, port and password needed |
-| Xray | VLESS, VMess or Trojan over TCP, WebSocket, HTTPUpgrade, gRPC or XHTTP, with TLS or REALITY (Vision too). TCP and UDP. Needs the Xray add-on |
+- **SSH**: Direct, Payload, Enhanced (split payload), TLS/SNI, WebSocket and
+  SlowDNS, in any combination. Works with old Dropbear servers.
+- **ZiVPN** (host, port, password) and **Xray** (VLESS, VMess, Trojan over
+  TCP, WebSocket, HTTPUpgrade, gRPC or XHTTP, with TLS or REALITY), imported
+  from a link.
+- **TUN** (whole LAN, TCP and UDP), TCP redirect, or a SOCKS5 port for
+  OpenClash and PassWall. DNS through the tunnel.
+- **Dashboard** with live speed, traffic chart, ping and every profile.
+  Switch profiles without Stop / Start.
+- **Profile selection**: Manual, Fallback, Auto (fastest) and **Balance**:
+  several accounts at once, each on its own modem, so the speed of the modems
+  adds up. Weight per account, UDP shared per flow, the fastest account
+  becomes the main one by itself.
+- **Change IP** for one or several modems: restart interface, AT command,
+  ModemManager, HiLink / Orbit or an Android phone over ADB. Can keep trying
+  until the IP is in your ranges (`10.0-10.19`, CIDR or prefix).
+- **Usage** per day, account and device, with a quota warning. Account
+  expiry reminders.
+- **Telegram bot**: control, alerts and a daily report, English or Bahasa
+  Indonesia.
+- Indonesian IPs and chosen domains go direct, small ad block list (Xray).
+- Updates from GitHub inside LuCI, checked with SHA256.
 
-Any other combination can be set with "Custom combination" in the account form.
+## Install
 
-Other features:
+OpenWrt or ImmortalWrt 23.05 or newer. Download the file for your router from
+the [Releases](https://github.com/dudul19/tomato-tunnel/releases/latest) page,
+copy it to `/tmp` and install it:
 
-- Allow insecure option for TLS (on by default, needed for most SNI hosts). Also
-  for Xray: the bundled Xray build keeps `allowInsecure`, which upstream removed.
-- Xray accounts: paste a `vless://`, `vmess://` or `trojan://` link and every
-  field is filled in. The Xray add-on installs from a button in LuCI.
-- Works with old Dropbear servers. SSH compatibility Auto tries modern
-  algorithms first and falls back to diffie-hellman-group1/14-sha1, ssh-rsa,
-  aes128-cbc and 3des-cbc. Legacy and Modern only are also available.
-- Every HTTP reply from the front server is skipped until the SSH server answers.
-- Shows the server banner in the log during login.
-- Routes the whole LAN through the tunnel (TUN, TCP and UDP), or only TCP
-  (redirect), or just opens a SOCKS5 port for OpenClash or PassWall.
-- DNS through the tunnel. dnsmasq is pointed at it while connected and
-  restored when you stop.
-- Dashboard with live download/upload speed, a 60-second traffic chart, ping,
-  public IP and every profile with its latency. The chart is kept by the daemon,
-  so it is still there after a page reload, and drops show as gaps.
-- Switch profiles from the Dashboard without Stop and Start. The current tunnel
-  keeps working until the new profile is connected; if it fails, nothing changes.
-- Profile selection: Manual, Fallback (next profile after 3 failed reconnects)
-  or Auto (moves to a profile at least 20 ms faster, pinged every 5 minutes).
-- Latency test like OpenClash: TCP ping to the server (or remote proxy) port,
-  or one DNS query through the resolver for SlowDNS. No SSH login needed.
-- Ping check and auto reconnect.
-- Show on Dashboard per account: accounts you hide stay in the list as spares and
-  are never used by Fallback or Auto.
-- Indonesian IPs go direct (optional, every account type): local sites and games
-  skip the tunnel. Uses the APNIC list for Indonesia in an nftables set.
-- For Xray accounts: domains that always go direct (for example bank apps) and a
-  small built-in ad and tracker block list.
-- Change IP: restart the interface, airplane mode by AT command, ModemManager,
-  HiLink / Orbit modem or an Android phone over ADB. After failed connects, on a
-  schedule or from a button on the Dashboard. Can keep trying until the IP starts
-  with a prefix you choose.
-- Usage tab: traffic per day, per account and per device (TUN mode), monthly
-  totals, a quota warning and the day your package renews.
-- Expiry date per account: a reminder before it ends, and expired accounts are
-  skipped by Auto and Fallback.
-- Paste an account message to import it, share one account as a link, or back up
-  and restore every account as a JSON file.
-- Reorder accounts by dragging them, delete them straight from the list.
-- Telegram bot (Settings › Telegram, off by default): status, switch profile,
-  Manual / Fallback / Auto, Change IP, start / stop, usage, accounts (add from a
-  link, expiry, delete), router and devices, log, update, backup and restore,
-  reboot. Alerts when the tunnel drops or comes back, a profile is switched, a
-  login fails, an account is about to expire, the IP changes, the router starts,
-  a new device joins or an update is out, plus a daily report. Tables and
-  coloured buttons, English or Bahasa Indonesia. Admins pair with a 6-digit code
-  from LuCI; nobody else can use it, and every action can be turned off. Runs as
-  its own small service, so Start works while the tunnel is stopped. Reaches
-  Telegram over the WAN first, then through the tunnel.
-- Six built-in banners (Tomato is the default) or your own image.
-- 1 to 4 parallel SSH sessions.
-- Updates from GitHub Releases inside LuCI, checked with SHA256. Settings are kept.
-- Uses the standard LuCI layout, so it follows any theme.
+```sh
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.6.0_aarch64_generic.apk   # OpenWrt 25.x and newer
+opkg install /tmp/luci-app-tomato-tunnel_1.6.0_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
+```
 
-## Requirements
-
-- OpenWrt or ImmortalWrt 23.05 or newer on one of these architectures:
-
-| Architecture | Typical devices |
-|---|---|
-| `aarch64_generic` | Amlogic / Rockchip STBs and boards, most 64-bit ARM |
-| `aarch64_cortex-a53` | Raspberry Pi 3/4 (64-bit), MediaTek Filogic MT7981/MT7986 |
-| `aarch64_cortex-a72` | Raspberry Pi 4 (bcm2711), NanoPi R4S |
-| `arm_cortex-a7`, `arm_cortex-a7_neon-vfpv4` | Allwinner H3, Qualcomm IPQ40xx |
-| `arm_cortex-a9`, `arm_cortex-a9_vfpv3-d16` | Marvell mvebu (Linksys WRT) |
-| `arm_cortex-a15_neon-vfpv4` | Qualcomm IPQ806x |
-| `mipsel_24kc` | MediaTek MT7621 / MT7628 |
-| `mips_24kc` | Atheros / QCA ath79 |
-| `x86_64` | PCs, mini PCs, virtual machines |
-
-- About 13 MB of free flash and 64 MB of free RAM. Routers with 16 MB of flash
-  are too small unless they use extroot or USB storage. Only aarch64 has been
-  tested on a real router so far.
-- The Xray add-on needs about 30 MB more flash (11 MB download). It is optional;
-  without it everything except Xray accounts works.
-- These packages, installed automatically from the official repo:
-  `kmod-tun ip-full ca-bundle luci-base`
-- hev-socks5-tunnel 2.17.1 (static, MIT) is bundled in the package, so it also
-  installs on OpenWrt 23.05 where that package is not in the feed
+Then open LuCI › Services › Tomato Tunnel. Xray accounts need the Xray add-on:
+Settings › About & update › Install Xray. Architectures, requirements and the
+full setup are in the [guide](docs/GUIDE.md#2-requirements).
 
 ## Performance
 
 ![CPU and RAM, SSH vs Xray](docs/benchmark.svg)
 
-Measured on a King3399 (RK3399, 6 cores, 2 GB) running ImmortalWrt in TUN mode,
-idle and while one LAN PC downloads or uploads at 40 to 60 Mbps through the
-tunnel.
-
-- CPU is shown per core: 100% means one CPU core is fully busy. This router has
-  6 cores, so a 112% bar is about 19% of the whole chip. Boxes with slower cores,
-  such as S905X STBs (4x Cortex-A53), need more per core for the same speed.
-- SSH: most of the work is encryption inside `tomato-tunnel` plus the TUN helper
-  (`hev-socks5-tunnel`). About 20 MB of RAM in total.
-- Xray: since 1.5.0 TUN traffic goes straight from the TUN helper to Xray, so
-  `tomato-tunnel` itself stays near 0% during a download (before it was about a
-  third of a core at 60 Mbps). The speed is the same. Xray needs about 40 MB more
-  RAM than SSH.
-- Idle, everything together uses under 4% of one core.
-
-## Install
-
-Download the file for your router from the Releases page and copy it to `/tmp`.
-
-OpenWrt 25.x and newer (apk):
-
-```sh
-cat /etc/apk/arch
-apk update
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.5.0_aarch64_generic.apk
-```
-
-OpenWrt 23.05 and 24.10 (opkg):
-
-```sh
-opkg print-architecture
-opkg update
-opkg install /tmp/luci-app-tomato-tunnel_1.5.0_aarch64_generic.ipk
-```
-
-Open LuCI, go to Services > Tomato Tunnel, add or import an account and press
-Save & Apply. The tunnel starts right away.
-
-### Xray add-on
-
-Only needed for Xray accounts. The easiest way: Settings > About & update >
-Xray add-on > Install Xray (or the Install Xray button in an Xray account). It
-downloads the right package from the latest release and checks the SHA256.
-
-By hand, copy `tomato-tunnel-xray_<version>_<arch>` to `/tmp` and run:
-
-```sh
-apk add --allow-untrusted /tmp/tomato-tunnel-xray_26.11.9_aarch64_generic.apk   # apk
-opkg install /tmp/tomato-tunnel-xray_26.11.9_aarch64_generic.ipk                # opkg
-```
-
-When Tomato Tunnel updates itself, the add-on is updated too.
-
-If you also use OpenClash or PassWall, do not run both in TUN mode at the same
-time. Set Tomato Tunnel to SOCKS5 only and use `127.0.0.1:1080` as a proxy there.
-
-## Payload tags
-
-`[bug]` `[host]` `[port]` `[host_port]` `[ssh]` `[ua]` `[crlf]` `[crlf*2]` `[cr]` `[lf]`
-`[lfcr]` `[protocol]` `[method]` `[raw]` `[netData]` `[auth]`
-
-Splits:
-
-- `[split]` new write after the split delay set in the account (default 1000 ms)
-- `[delay_split]` new write after 1.5 s
-- `[instant_split]` new write with no delay
-
-Example:
-
-```
-HEAD / HTTP/1.1[crlf]Host: [bug][crlf][crlf]PATCH / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf][crlf][split]HTTP/1.1[crlf][crlf]
-```
+Measured on a King3399 (RK3399, 6 cores, 2 GB), ImmortalWrt, TUN mode. 100%
+means one CPU core. Idle, everything together uses under 4% of one core.
+Balance mode costs more CPU because all traffic passes through
+`tomato-tunnel` to be shared; numbers in the [guide](docs/GUIDE.md#17-cpu-and-ram).
 
 ## Build
 
@@ -240,9 +115,9 @@ offered on the Beta channel.
 | `cmd/tomato-tunnel` | daemon and command line (`run`, `test`, `update`, `bot`) |
 | `internal/tunnel` | payload, TLS, SlowDNS, SSH, ZiVPN, Xray and session pool |
 | `internal/proxy` | SOCKS5 with UDP over UDPGW, transparent redirect, DNS forwarder |
-| `internal/daemon` | reconnect, ping check, live profile switch, latency test and status |
+| `internal/daemon` | reconnect, ping check, live profile switch, latency test, Balance and status |
 | `internal/usage` | daily, per-account and per-device traffic statistics |
-| `internal/changeip` | Change IP methods (interface, AT, ModemManager, HiLink, ADB) |
+| `internal/changeip` | Change IP methods (interface, AT, ModemManager, HiLink, ADB), IP ranges |
 | `internal/bot` | Telegram bot: menus, alerts, daily report, pairing |
 | `root/` | OpenWrt files: init script, network script, LuCI page |
 

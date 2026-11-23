@@ -5,6 +5,7 @@ import (
 	"net"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,6 +40,7 @@ type Main struct {
 	ManageDnsmasq bool
 	Bypass        []string
 	BypassID      bool
+	BalanceSticky bool // Balance: keep each destination on one account
 	BlockAds      bool
 	DirectDomains []string
 	LogLevel      string
@@ -48,10 +50,14 @@ type Main struct {
 	ExpiryWarn    int
 	UsageResetDay int
 	UsageQuotaGB  int
-	IP            ChangeIP
+	IP            ChangeIP   // first modem, plus the global triggers
+	IPTarget      string     // auto, all or a modem ID
+	Modems        []ChangeIP // every modem with a method, IP first
 }
 
 type ChangeIP struct {
+	ID         string
+	Name       string
 	Method     string
 	Iface      string
 	ATPort     string
@@ -101,6 +107,9 @@ type Profile struct {
 	Order      int
 	Expires    string
 	Dashboard  bool
+	Wan        string // OpenWrt interface this account goes out on ("" = system route)
+	Balance    bool   // joins the Balance mode
+	Weight     int    // Balance: share of new connections, 1–5
 
 	XProto   string
 	UUID     string
@@ -187,10 +196,21 @@ func (c *Config) aliasAnonymous(path string) {
 func FromSections(ss []*uci.Section) (*Config, error) {
 	c := &Config{Main: defaults()}
 	idx := 0
+	var extra []ChangeIP
 	for _, s := range ss {
 		switch s.Type {
 		case "main":
 			readMain(&c.Main, s)
+		case "modem":
+			ip := modemDefaults()
+			readModem(&ip, s)
+			ip.ID, ip.Name = s.Name, s.Get("name", s.Name)
+			if ip.ID == "" || ip.ID == "main" {
+				ip.ID = fmt.Sprintf("modem%d", len(extra)+2)
+			}
+			if ip.Method != "none" {
+				extra = append(extra, ip)
+			}
 		case "profile":
 			p := readProfile(s)
 			if p.Order == 0 {
@@ -202,7 +222,26 @@ func FromSections(ss []*uci.Section) (*Config, error) {
 		}
 	}
 	sort.SliceStable(c.Profiles, func(i, j int) bool { return c.Profiles[i].Order < c.Profiles[j].Order })
+	if c.Main.IP.Method != "none" {
+		c.Main.Modems = append(c.Main.Modems, c.Main.IP)
+	}
+	c.Main.Modems = append(c.Main.Modems, extra...)
 	return c, nil
+}
+
+func modemDefaults() ChangeIP {
+	return ChangeIP{Method: "none", Iface: "wwan", ATPort: "/dev/ttyUSB2", ATOff: "AT+CFUN=4", ATOn: "AT+CFUN=1", MMModem: "0",
+		HilinkAddr: "192.168.8.1", HilinkUser: "admin", Wait: 5, MaxTries: 5}
+}
+
+// Modem returns the modem with this ID.
+func (m *Main) Modem(id string) (ChangeIP, bool) {
+	for _, x := range m.Modems {
+		if x.ID == id {
+			return x, true
+		}
+	}
+	return ChangeIP{}, false
 }
 
 func defaults() Main {
@@ -237,7 +276,7 @@ func readMain(m *Main, s *uci.Section) {
 	if m.Failover {
 		pol = "fallback"
 	}
-	m.Policy = oneOf(s.Get("policy", pol), pol, "manual", "fallback", "auto")
+	m.Policy = oneOf(s.Get("policy", pol), pol, "manual", "fallback", "auto", "balance")
 	m.RestartModem = b(s, "restart_modem", m.RestartModem)
 	m.ModemIface = s.Get("modem_iface", m.ModemIface)
 	m.SSHCompat = oneOf(s.Get("ssh_compat", m.SSHCompat), m.SSHCompat, "auto", "legacy", "modern")
@@ -258,26 +297,14 @@ func readMain(m *Main, s *uci.Section) {
 			ip.Iface = m.ModemIface
 		}
 	}
-	ip.Method = oneOf(s.Get("ip_method", ip.Method), ip.Method, "none", "iface", "at", "mm", "hilink", "adb")
-	ip.Iface = s.Get("ip_iface", ip.Iface)
-	ip.ATPort = s.Get("at_port", ip.ATPort)
-	ip.ATOff = s.Get("at_off", ip.ATOff)
-	ip.ATOn = s.Get("at_on", ip.ATOn)
-	ip.MMModem = s.Get("mm_modem", ip.MMModem)
-	ip.HilinkAddr = s.Get("hilink_addr", ip.HilinkAddr)
-	ip.HilinkUser = s.Get("hilink_user", ip.HilinkUser)
-	ip.HilinkPass = s.Get("hilink_pass", ip.HilinkPass)
-	ip.ADBSerial = s.Get("adb_serial", ip.ADBSerial)
-	ip.Wait = n(s, "ip_wait", ip.Wait, 1, 120)
+	readModem(ip, s)
+	ip.ID, ip.Name = "main", s.Get("ip_name", "Modem 1")
 	ip.AfterFails = b(s, "ip_after_fails", ip.AfterFails)
 	ip.AfterN = n(s, "ip_after_n", ip.AfterN, 1, 50)
-	ip.EveryH = n(s, "ip_every_h", ip.EveryH, 0, 168)
 	ip.Button = b(s, "ip_button", ip.Button)
-	ip.MaxTries = n(s, "ip_max_tries", ip.MaxTries, 1, 20)
-	for _, v := range strings.FieldsFunc(s.Get("ip_prefix", ""), func(r rune) bool { return r == ',' || r == ' ' }) {
-		ip.Prefix = append(ip.Prefix, v)
-	}
+	m.IPTarget = s.Get("ip_target", "auto")
 	m.BypassID = b(s, "bypass_id", m.BypassID)
+	m.BalanceSticky = b(s, "balance_sticky", false)
 	m.BlockAds = b(s, "block_ads", m.BlockAds)
 	for _, v := range s.Lists["direct_domain"] {
 		v = strings.ToLower(strings.TrimSpace(strings.SplitN(v, "#", 2)[0]))
@@ -291,6 +318,34 @@ func readMain(m *Main, s *uci.Section) {
 		if v != "" {
 			m.Bypass = append(m.Bypass, v)
 		}
+	}
+}
+
+var reDash = regexp.MustCompile(`\s*-\s*`)
+
+// readModem reads the per-modem Change IP options. The main section holds
+// the first modem, every "modem" section one more, with the same names.
+func readModem(ip *ChangeIP, s *uci.Section) {
+	ip.Method = oneOf(s.Get("ip_method", ip.Method), ip.Method, "none", "iface", "at", "mm", "hilink", "adb")
+	ip.Iface = s.Get("ip_iface", ip.Iface)
+	ip.ATPort = s.Get("at_port", ip.ATPort)
+	ip.ATOff = s.Get("at_off", ip.ATOff)
+	ip.ATOn = s.Get("at_on", ip.ATOn)
+	ip.MMModem = s.Get("mm_modem", ip.MMModem)
+	ip.HilinkAddr = s.Get("hilink_addr", ip.HilinkAddr)
+	ip.HilinkUser = s.Get("hilink_user", ip.HilinkUser)
+	ip.HilinkPass = s.Get("hilink_pass", ip.HilinkPass)
+	ip.ADBSerial = s.Get("adb_serial", ip.ADBSerial)
+	if _, set := s.Options["ip_iface"]; !set && (ip.Method == "hilink" || ip.Method == "adb") {
+		ip.Iface = "" // only used to check the IP; "wwan" may be another modem
+	}
+	ip.Wait = n(s, "ip_wait", ip.Wait, 1, 120)
+	ip.EveryH = n(s, "ip_every_h", ip.EveryH, 0, 168)
+	ip.MaxTries = n(s, "ip_max_tries", ip.MaxTries, 1, 20)
+	ip.Prefix = nil
+	pre := reDash.ReplaceAllString(s.Get("ip_prefix", ""), "-")
+	for _, v := range strings.FieldsFunc(pre, func(r rune) bool { return r == ',' || r == ' ' || r == ';' || r == '\n' }) {
+		ip.Prefix = append(ip.Prefix, v)
 	}
 }
 
@@ -318,6 +373,9 @@ func readProfile(s *uci.Section) Profile {
 		Order:      n(s, "order", 0, 0, 100000),
 		Expires:    strings.TrimSpace(s.Get("expires", "")),
 		Dashboard:  b(s, "dashboard", true),
+		Wan:        s.Get("wan", ""),
+		Balance:    b(s, "balance", true),
+		Weight:     n(s, "balance_weight", 1, 1, 5),
 		XProto:     oneOf(strings.ToLower(s.Get("x_proto", "vless")), "vless", "vless", "vmess", "trojan"),
 		UUID:       strings.TrimSpace(s.Get("uuid", "")),
 		XNet:       oneOf(strings.ToLower(s.Get("x_net", "tcp")), "tcp", "tcp", "ws", "httpupgrade", "grpc", "xhttp"),
@@ -472,7 +530,7 @@ func (p Profile) Validate() error {
 	if p.UseDNS && (p.DNSDomain == "" || len(p.DNSPubkey) != 64) {
 		return fmt.Errorf("profile %q: SlowDNS needs NS domain and a 64-hex public key", p.Name)
 	}
-	if p.Proxy != "" {
+	if p.Proxy != "" && !strings.Contains(strings.ToLower(p.Proxy), "[rotate=") && !strings.Contains(strings.ToLower(p.Proxy), "[random=") {
 		if _, _, err := net.SplitHostPort(p.Proxy); err != nil {
 			return fmt.Errorf("profile %q: remote proxy must be host:port", p.Name)
 		}

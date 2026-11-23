@@ -11,10 +11,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -30,6 +32,8 @@ type Logger interface {
 }
 
 type Result struct {
+	ID    string `json:"id,omitempty"`
+	Name  string `json:"name,omitempty"`
 	Old   string `json:"old"`
 	New   string `json:"new"`
 	Tries int    `json:"tries"`
@@ -46,40 +50,49 @@ var Methods = map[string]string{
 }
 
 func Run(ctx context.Context, c config.ChangeIP, wan string, log Logger) Result {
-	res := Result{}
+	res := Result{ID: c.ID, Name: c.Name}
 	if c.Method == "none" || Methods[c.Method] == "" {
 		res.Error = "no Change IP method is set (Settings › Change IP)"
 		return res
 	}
-	res.Old = WanIP(ctx, wan, c.Iface)
+	dev := wan
+	if d := IfaceDevice(c.Iface); d != "" {
+		dev = d
+	}
+	who := ""
+	if c.Name != "" {
+		who = " " + c.Name
+	}
+	old := probe(ctx, dev, c.Iface)
+	res.Old = old.String()
 	for res.Tries = 1; res.Tries <= c.MaxTries; res.Tries++ {
 		if ctx.Err() != nil {
 			res.Error = "cancelled"
 			return res
 		}
-		log.Warnf("changeip", "Change IP: %s%s", Methods[c.Method], where(c))
+		log.Warnf("changeip", "Change IP%s: %s%s", who, Methods[c.Method], where(c))
 		if err := toggle(ctx, c, log); err != nil {
 			res.Error = err.Error()
-			log.Errorf("changeip", "Change IP failed: %v", err)
+			log.Errorf("changeip", "Change IP%s failed: %v", who, err)
 			return res
 		}
 		log.Infof("changeip", "Radio on, waiting for network")
-		ip := waitNew(ctx, wan, c.Iface, res.Old, 60*time.Second)
-		res.New = ip
-		if ip == "" {
+		got := waitNew(ctx, dev, c.Iface, old, 60*time.Second)
+		res.New = got.String()
+		if got.empty() {
 			res.Error = "no network after the change"
 			log.Errorf("changeip", "No network 60 s after the change")
 			continue
 		}
-		if len(c.Prefix) > 0 && !matchPrefix(ip, c.Prefix) {
-			log.Warnf("changeip", "New IP %s (was %s), not in %s — try %d/%d", ip, orDash(res.Old), strings.Join(c.Prefix, ", "), res.Tries, c.MaxTries)
-			res.Old = ip
+		if len(c.Prefix) > 0 && !matchPrefix(got.pub, c.Prefix) && !matchPrefix(got.local, c.Prefix) {
+			log.Warnf("changeip", "New IP %s (was %s), not in %s · try %d/%d", res.New, orDash(old.String()), strings.Join(c.Prefix, ", "), res.Tries, c.MaxTries)
+			old = got
 			continue
 		}
-		if ip == res.Old {
-			log.Warnf("changeip", "IP is still %s", ip)
+		if got == old {
+			log.Warnf("changeip", "IP is still %s", res.New)
 		} else {
-			log.Okf("changeip", "New IP %s OK (was %s)", ip, orDash(res.Old))
+			log.Okf("changeip", "New IP %s OK (was %s)", res.New, orDash(old.String()))
 		}
 		res.OK, res.Error = true, ""
 		return res
@@ -89,6 +102,49 @@ func Run(ctx context.Context, c config.ChangeIP, wan string, log Logger) Result 
 		res.Error = fmt.Sprintf("no IP matching %s after %d tries", strings.Join(c.Prefix, ", "), c.MaxTries)
 	}
 	return res
+}
+
+// addrs is the public IP seen from outside and the address on the modem
+// interface. Mobile operators often hand out a private (CGNAT) address
+// such as 10.x, so the IP ranges are checked against both.
+type addrs struct{ pub, local string }
+
+func (a addrs) empty() bool { return a.pub == "" && a.local == "" }
+
+func (a addrs) String() string {
+	switch {
+	case a.pub == "":
+		return a.local
+	case a.local == "" || a.local == a.pub:
+		return a.pub
+	}
+	return a.pub + " (" + a.local + ")"
+}
+
+func probe(ctx context.Context, dev, iface string) addrs {
+	return addrs{pub: publicIP(ctx, dev), local: IfaceIP(iface)}
+}
+
+// IfaceDevice returns the Linux device of an OpenWrt interface (wwan → usb0).
+func IfaceDevice(iface string) string {
+	if iface == "" {
+		return ""
+	}
+	out, err := exec.Command("ifstatus", iface).Output()
+	if err != nil {
+		return ""
+	}
+	var st struct {
+		L3  string `json:"l3_device"`
+		Dev string `json:"device"`
+	}
+	if json.Unmarshal(out, &st) != nil {
+		return ""
+	}
+	if st.L3 != "" {
+		return st.L3
+	}
+	return st.Dev
 }
 
 func orDash(s string) string {
@@ -116,9 +172,55 @@ func where(c config.ChangeIP) string {
 	return ""
 }
 
+// partial parses an IPv4 address that may be cut short ("10.19") and fills
+// the missing parts with fill: 10.19 is 10.19.0.0 as a start and
+// 10.19.255.255 as an end.
+func partial(s string, fill int) (netip.Addr, error) {
+	if strings.Contains(s, ":") {
+		return netip.ParseAddr(s)
+	}
+	f := strings.Split(strings.TrimSuffix(s, "."), ".")
+	if len(f) == 0 || len(f) > 4 {
+		return netip.Addr{}, fmt.Errorf("bad address %q", s)
+	}
+	var b [4]byte
+	for i := range b {
+		v := fill
+		if i < len(f) {
+			n, err := strconv.Atoi(f[i])
+			if err != nil || n < 0 || n > 255 || f[i] == "" {
+				return netip.Addr{}, fmt.Errorf("bad address %q", s)
+			}
+			v = n
+		}
+		b[i] = byte(v)
+	}
+	return netip.AddrFrom4(b), nil
+}
+
+// matchPrefix reports whether ip matches one of the entries. An entry is a
+// CIDR block (114.12.0.0/14), a dash range (114.12.0.0-114.15.255.255, or
+// short: 10.0-10.19) or a
+// plain text prefix (114.12.).
 func matchPrefix(ip string, pre []string) bool {
+	a, aerr := netip.ParseAddr(ip)
+	a = a.Unmap()
 	for _, p := range pre {
-		if p != "" && strings.HasPrefix(ip, p) {
+		p = strings.TrimSpace(p)
+		switch {
+		case p == "":
+		case strings.Contains(p, "/"):
+			if n, err := netip.ParsePrefix(p); err == nil && aerr == nil && n.Masked().Contains(a) {
+				return true
+			}
+		case strings.Contains(p, "-"):
+			lo, hi, _ := strings.Cut(p, "-")
+			l, err1 := partial(strings.TrimSpace(lo), 0)
+			h, err2 := partial(strings.TrimSpace(hi), 255)
+			if err1 == nil && err2 == nil && aerr == nil && a.BitLen() == l.BitLen() && l.Compare(a) <= 0 && a.Compare(h) <= 0 {
+				return true
+			}
+		case strings.HasPrefix(ip, p):
 			return true
 		}
 	}
@@ -218,15 +320,15 @@ func toggle(ctx context.Context, c config.ChangeIP, log Logger) error {
 	return fmt.Errorf("unknown method %q", c.Method)
 }
 
-func waitNew(ctx context.Context, wan, iface, old string, max time.Duration) string {
+func waitNew(ctx context.Context, dev, iface string, old addrs, max time.Duration) addrs {
 	end := time.Now().Add(max)
-	last := ""
+	var last addrs
 	for time.Now().Before(end) && ctx.Err() == nil {
-		ip := WanIP(ctx, wan, iface)
-		if ip != "" {
-			last = ip
-			if ip != old {
-				return ip
+		a := probe(ctx, dev, iface)
+		if !a.empty() {
+			last = a
+			if a != old {
+				return a
 			}
 		}
 		sleep(ctx, 3*time.Second)
@@ -252,6 +354,13 @@ func directClient(wan string) *http.Client {
 var reIP = regexp.MustCompile(`^\d{1,3}(\.\d{1,3}){3}$`)
 
 func WanIP(ctx context.Context, wan, iface string) string {
+	if ip := publicIP(ctx, wan); ip != "" {
+		return ip
+	}
+	return IfaceIP(iface)
+}
+
+func publicIP(ctx context.Context, wan string) string {
 	cl := directClient(wan)
 	for _, u := range []string{"http://ip-api.com/line/?fields=query", "http://api.ipify.org", "http://ifconfig.me/ip"} {
 		req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
@@ -266,7 +375,7 @@ func WanIP(ctx context.Context, wan, iface string) string {
 			return s
 		}
 	}
-	return IfaceIP(iface)
+	return ""
 }
 
 func IfaceIP(iface string) string {

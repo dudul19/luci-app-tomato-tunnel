@@ -51,43 +51,46 @@ func envOr(k, def string) string {
 var Version = "dev"
 
 type Status struct {
-	State        string           `json:"state"`
-	Message      string           `json:"message,omitempty"`
-	Profile      string           `json:"profile"`
-	ProfileName  string           `json:"profile_name"`
-	Mode         string           `json:"mode"`
-	Enhanced     bool             `json:"enhanced"`
-	NetMode      string           `json:"net_mode"`
-	Iface        string           `json:"iface,omitempty"`
-	Since        int64            `json:"since,omitempty"`
-	PublicIP     string           `json:"public_ip,omitempty"`
-	Country      string           `json:"country,omitempty"`
-	ISP          string           `json:"isp,omitempty"`
-	PingMS       int64            `json:"ping_ms"`
-	RX           int64            `json:"rx"`
-	TX           int64            `json:"tx"`
-	RateRX       int64            `json:"rate_rx"`
-	RateTX       int64            `json:"rate_tx"`
-	Sessions     int              `json:"sessions"`
-	Reconnects   int              `json:"reconnects_today"`
-	Policy       string           `json:"policy"`
-	Switching    string           `json:"switching,omitempty"`
-	LoginFailed  map[string]int64 `json:"login_failed,omitempty"`
-	Banner       string           `json:"banner,omitempty"`
-	ServerMsg    string           `json:"server_msg,omitempty"`
-	Kex          string           `json:"kex,omitempty"`
-	Legacy       bool             `json:"legacy"`
-	PeriodBytes  int64            `json:"period_bytes"`
-	TodayBytes   int64            `json:"today_bytes"`
-	QuotaGB      int              `json:"quota_gb"`
-	ChangingIP   bool             `json:"changing_ip,omitempty"`
-	LastIPChange int64            `json:"last_ip_change,omitempty"`
-	IPChangeMsg  string           `json:"ip_change_msg,omitempty"`
-	IPChangeOld  string           `json:"ip_change_old,omitempty"`
-	Hist         [][]int64        `json:"hist"`
-	Version      string           `json:"version"`
-	Updated      int64            `json:"updated"`
-	PID          int              `json:"pid"`
+	State         string           `json:"state"`
+	Message       string           `json:"message,omitempty"`
+	Profile       string           `json:"profile"`
+	ProfileName   string           `json:"profile_name"`
+	Mode          string           `json:"mode"`
+	Enhanced      bool             `json:"enhanced"`
+	NetMode       string           `json:"net_mode"`
+	Iface         string           `json:"iface,omitempty"`
+	Since         int64            `json:"since,omitempty"`
+	PublicIP      string           `json:"public_ip,omitempty"`
+	Country       string           `json:"country,omitempty"`
+	ISP           string           `json:"isp,omitempty"`
+	PingMS        int64            `json:"ping_ms"`
+	RX            int64            `json:"rx"`
+	TX            int64            `json:"tx"`
+	RateRX        int64            `json:"rate_rx"`
+	RateTX        int64            `json:"rate_tx"`
+	Sessions      int              `json:"sessions"`
+	Reconnects    int              `json:"reconnects_today"`
+	Policy        string           `json:"policy"`
+	Switching     string           `json:"switching,omitempty"`
+	LoginFailed   map[string]int64 `json:"login_failed,omitempty"`
+	Banner        string           `json:"banner,omitempty"`
+	ServerMsg     string           `json:"server_msg,omitempty"`
+	Kex           string           `json:"kex,omitempty"`
+	Legacy        bool             `json:"legacy"`
+	PeriodBytes   int64            `json:"period_bytes"`
+	TodayBytes    int64            `json:"today_bytes"`
+	QuotaGB       int              `json:"quota_gb"`
+	ChangingIP    bool             `json:"changing_ip,omitempty"`
+	LastIPChange  int64            `json:"last_ip_change,omitempty"`
+	IPChangeMsg   string           `json:"ip_change_msg,omitempty"`
+	IPChangeOld   string           `json:"ip_change_old,omitempty"`
+	IPChangeModem string           `json:"ip_change_modem,omitempty"`
+	Modems        []ModemStatus    `json:"modems,omitempty"`
+	Balance       []BalanceStatus  `json:"balance,omitempty"`
+	Hist          [][]int64        `json:"hist"`
+	Version       string           `json:"version"`
+	Updated       int64            `json:"updated"`
+	PID           int              `json:"pid"`
 }
 
 type Daemon struct {
@@ -122,13 +125,21 @@ type Daemon struct {
 
 	use          *usage.Store
 	ipBusy       atomic.Bool
-	ipCh         chan struct{}
+	ipCh         chan string
 	lastIPChange time.Time
+	lastIP       map[string]time.Time
+	bal          *balancer
+	mainBad      atomic.Bool // the main pool failed its last check
 	failRun      int
 }
 
 func (d *Daemon) Dial(addr string) (net.Conn, error) {
 	p := d.pool.Load()
+	if d.balancing() {
+		if c, ok, err := d.balanceDial(p, addr); ok {
+			return c, err
+		}
+	}
 	if p == nil {
 		return nil, tunnel.ErrNoSession
 	}
@@ -137,6 +148,11 @@ func (d *Daemon) Dial(addr string) (net.Conn, error) {
 
 func (d *Daemon) NativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
 	p := d.pool.Load()
+	if d.balancing() {
+		if r, ok := d.balanceUDP(p, onPacket); ok {
+			return r, true, nil
+		}
+	}
 	if p != nil && p.IsXray() {
 		u, err := p.XrayUDP(onPacket)
 		if err != nil {
@@ -172,7 +188,7 @@ func Run(cfgPath string, foreground bool) error {
 	log.SetLevel(cfg.Main.LogLevel)
 	d := &Daemon{cfg: cfg, cfgPath: cfgPath, log: log,
 		switchCh: make(chan string, 1), autoKick: make(chan struct{}, 1), autoRes: make(chan LatencyReport, 1),
-		ipCh: make(chan struct{}, 1), use: usage.Load(UsageFile, UsageLiveFile), lastIPChange: time.Now()}
+		ipCh: make(chan string, 1), lastIP: map[string]time.Time{}, bal: newBalancer(), use: usage.Load(UsageFile, UsageLiveFile), lastIPChange: time.Now()}
 	d.st = Status{State: "starting", NetMode: cfg.Main.NetMode, Policy: cfg.Main.Policy, Version: Version, PID: os.Getpid()}
 	os.Remove(CmdFile)
 	d.writeStatus()
@@ -210,6 +226,8 @@ func Run(cfgPath string, foreground bool) error {
 		return err
 	}
 	go d.statusLoop(ctx)
+	go d.modemStatus()
+	go d.balanceLoop(ctx)
 	if cfg.Main.UpdateCheck {
 		go d.updateLoop(ctx)
 	}
@@ -264,8 +282,8 @@ func (d *Daemon) waitOrSwitch(ctx context.Context, dur time.Duration) string {
 	case <-time.After(dur):
 	case id := <-d.switchCh:
 		return id
-	case <-d.ipCh:
-		d.changeIP(ctx, "Change IP requested")
+	case t := <-d.ipCh:
+		d.changeIP(ctx, "Change IP requested", t)
 	}
 	return ""
 }
@@ -286,7 +304,8 @@ func (d *Daemon) activate(pool *tunnel.Pool, countReconnect bool) {
 	p := pool.P
 	d.pool.Store(pool)
 	d.mu.Lock()
-	d.rxBase, d.txBase = 0, 0
+	d.rxBase, d.txBase = pool.RX.Load(), pool.TX.Load() // a Balance session handed over keeps its counters
+	d.mainBad.Store(false)
 	if countReconnect {
 		d.countReconnect()
 	}
@@ -304,7 +323,7 @@ func (d *Daemon) activate(pool *tunnel.Pool, countReconnect bool) {
 
 func (d *Daemon) hevTarget() (string, int) {
 	m := d.cfg.Main
-	if p := d.pool.Load(); p != nil && p.IsXray() {
+	if p := d.pool.Load(); p != nil && p.IsXray() && !d.balancing() {
 		if port := p.XrayPort(); port > 0 {
 			return "127.0.0.1", port
 		}
@@ -350,7 +369,11 @@ func XrayOpts(m config.Main) tunnel.XrayOpts {
 
 func (d *Daemon) newPool(p config.Profile) *tunnel.Pool {
 	m := d.cfg.Main
-	np := tunnel.NewPool(p, m.SSHCompat, m.WanIface, d.log)
+	iface := m.WanIface
+	if p.Wan != "" {
+		iface = ifaceDev(p.Wan)
+	}
+	np := tunnel.NewPool(p, m.SSHCompat, iface, d.log)
 	np.X = XrayOpts(m)
 	return np
 }
@@ -455,7 +478,7 @@ func (d *Daemon) supervise(ctx context.Context) {
 				}
 				if ip := d.cfg.Main.IP; d.ipEnabled() && ip.AfterFails && d.failRun >= ip.AfterN && !errors.Is(err, tunnel.ErrAuth) {
 					d.failRun = 0
-					d.changeIP(ctx, fmt.Sprintf("%d failed connects in a row", ip.AfterN))
+					d.changeIP(ctx, fmt.Sprintf("%d failed connects in a row", ip.AfterN), "")
 				}
 				backoff := time.Duration(2<<min(fails+rounds, 4)) * time.Second
 				if authFail && pi%len(profiles) != 0 {
@@ -488,8 +511,12 @@ func (d *Daemon) supervise(ctx context.Context) {
 			profiles, pi, fails, rounds = res.order, 0, 0, 0
 			d.activate(pool, false)
 			d.log.Okf("switch", "Traffic moved to %s", pool.P.Name)
-			old.Close()
-			d.log.Infof("switch", "Closed old session %s", old.P.Name)
+			if d.balGive(old) {
+				d.log.Infof("switch", "%s keeps running for Balance", old.P.Name)
+			} else {
+				old.Close()
+				d.log.Infof("switch", "Closed old session %s", old.P.Name)
+			}
 			go d.fetchIP(pool)
 			continue
 		}
@@ -526,6 +553,10 @@ func (d *Daemon) trySwitch(ctx context.Context, cur *tunnel.Pool, id, why string
 	if err := p.Validate(); err != nil {
 		d.log.Errorf("switch", "%v", err)
 		return nil, nil, err
+	}
+	if np := d.balTake(ProfileKey(p)); np != nil {
+		d.log.Okf("switch", "%sMaking %s the main account, its Balance session is already up", why, p.Name)
+		return np, order, nil
 	}
 	m := d.cfg.Main
 	d.log.Warnf("switch", "%sSwitching to %s, %s stays up until it is ready", why, p.Name, cur.P.Name)
@@ -625,12 +656,24 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 	defer sched.Stop()
 	for {
 		select {
-		case <-d.ipCh:
-			d.changeIP(ctx, "Change IP requested")
-			return monResult{reason: "IP changed"}
+		case t := <-d.ipCh:
+			if _, tun := d.changeIP(ctx, "Change IP requested", t); tun {
+				return monResult{reason: "IP changed"}
+			}
 		case <-sched.C:
-			if h := d.cfg.Main.IP.EveryH; d.ipEnabled() && h > 0 && time.Since(d.lastIPChange) >= time.Duration(h)*time.Hour {
-				d.changeIP(ctx, fmt.Sprintf("Scheduled Change IP (every %d h)", h))
+			go d.modemStatus()
+			tun := false
+			for _, m := range d.cfg.Main.Modems {
+				last, ok := d.lastIP[m.ID]
+				if !ok {
+					last = d.lastIPChange
+				}
+				if h := m.EveryH; h > 0 && time.Since(last) >= time.Duration(h)*time.Hour {
+					_, t := d.changeIP(ctx, fmt.Sprintf("Scheduled Change IP %s (every %d h)", m.Name, h), m.ID)
+					tun = tun || t
+				}
+			}
+			if tun {
 				return monResult{reason: "IP changed"}
 			}
 		case <-stats.C:
@@ -684,6 +727,7 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 			ms, err := check(pool, m.CheckURL)
 			if err != nil {
 				failed++
+				d.mainBad.Store(true)
 				d.log.Warnf("ping", "Ping %s failed: %s (%d/%d)", host, shortErr(err), failed, m.CheckFail)
 				if failed >= m.CheckFail {
 					return monResult{reason: fmt.Sprintf("check failed %d×", failed)}
@@ -692,6 +736,7 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 			}
 			d.log.Okf("ping", "Ping %s %d ms OK", host, ms)
 			failed = 0
+			d.mainBad.Store(false)
 			d.set(func(s *Status) { s.PingMS = ms })
 		}
 	}
@@ -729,7 +774,7 @@ func (d *Daemon) handleCmds(ctx context.Context) {
 				continue
 			}
 			switch f[1] {
-			case "manual", "fallback", "auto":
+			case "manual", "fallback", "auto", "balance":
 				d.pol.Store(f[1])
 				d.set(func(s *Status) { s.Policy = f[1] })
 				d.log.Infof("policy", "Profile selection: %s", f[1])
@@ -741,8 +786,12 @@ func (d *Daemon) handleCmds(ctx context.Context) {
 				}
 			}
 		case "changeip":
+			t := ""
+			if len(f) > 1 {
+				t = f[1]
+			}
 			select {
-			case d.ipCh <- struct{}{}:
+			case d.ipCh <- t:
 			default:
 			}
 		case "usage-reset":
@@ -1031,6 +1080,9 @@ func (d *Daemon) statusLoop(ctx context.Context) {
 				}
 				d.tunRX, d.tunTX = trx, ttx
 			}
+			brx, btx := d.balanceRates(p, d.st.RateRX, d.st.RateTX)
+			d.st.RateRX += brx
+			d.st.RateTX += btx
 			d.st.RX += d.st.RateRX
 			d.st.TX += d.st.RateTX
 			d.rxBase, d.txBase = rx, tx

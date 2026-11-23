@@ -156,9 +156,26 @@ function niceLabel(d) {
 	return layerLabel(L);
 }
 var RESTART_KEYS = [ 'net_mode', 'socks_port', 'socks_listen', 'wan_iface', 'dns_mode', 'dns_server', 'manage_dnsmasq', 'bypass', 'bypass_id', 'block_ads', 'direct_domain', 'ssh_compat', 'check_url', 'check_interval', 'check_fail', 'sessions', 'log_level' ];
-var PROFILE_KEYS = [ 'name', 'type', 'use_payload', 'use_tls', 'use_slowdns', 'enhanced', 'insecure', 'host', 'port', 'user', 'pass', 'bug', 'ua', 'payload', 'proxy', 'udpgw', 'split_delay', 'dns_domain', 'dns_resolver', 'dns_pubkey', 'dns_type', 'expires', 'dashboard',
+var PROFILE_KEYS = [ 'name', 'type', 'use_payload', 'use_tls', 'use_slowdns', 'enhanced', 'insecure', 'host', 'port', 'user', 'pass', 'bug', 'ua', 'payload', 'proxy', 'udpgw', 'split_delay', 'dns_domain', 'dns_resolver', 'dns_pubkey', 'dns_type', 'expires', 'dashboard', 'wan', 'balance', 'balance_weight',
 	'x_proto', 'uuid', 'x_net', 'x_path', 'x_host', 'x_service', 'x_mode', 'x_flow', 'x_sec', 'sni', 'fp', 'pbk', 'sid', 'spx', 'vcn', 'pcs' ];
 function onDash(p) { return p.dashboard !== '0'; }
+function inBal(p) { return p.balance !== '0'; }
+var L3 = {};
+// label of an OpenWrt interface: its live device, else the configured one
+// (ModemManager stores a long /sys path there, which says nothing).
+function ifLabel(i) {
+	var d = L3[i['.name']] || (i.device && i.device.charAt(0) !== '/' ? i.device : '') || i.proto || '';
+	return i['.name'] + (d ? ' (' + d + ')' : '');
+}
+function wanOptions(cur) {
+	var o = [ [ '', 'Auto (system route, mwan3 if used)' ] ];
+	(uci.sections('network', 'interface') || []).forEach(function(i) {
+		if (i['.name'] === 'loopback' || i['.name'] === 'lan' || /^tt|^tomato/.test(i['.name'])) return;
+		o.push([ i['.name'], ifLabel(i) ]);
+	});
+	if (cur && !o.some(function(x) { return x[0] === cur; })) o.push([ cur, cur ]);
+	return o;
+}
 var MON = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
 
 function parseExp(v) {
@@ -214,7 +231,7 @@ var BANNERS = [
 	[ 'minimal', 'Minimal', '<svg viewBox="0 0 1072 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><linearGradient id="tt_mg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#334155"/></linearGradient><pattern id="tt_mp" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#fff" stroke-opacity=".06"/></pattern></defs><rect width="1072" height="180" fill="url(#tt_mg)"/><rect width="1072" height="180" fill="url(#tt_mp)"/><path d="M700 180 L860 0 L900 0 L740 180 Z" fill="#dc2626" opacity=".85"/><path d="M770 180 L930 0 L950 0 L790 180 Z" fill="#f97316" opacity=".7"/></svg>' ],
 	[ 'dusk', 'Dusk City', BANNER_SVG ]
 ];
-var WM_BANNER = '<svg class="tt-wm" viewBox="16 12 380 222" role="img" aria-label="Tomato Tunnel"><path fill="#ffffff" d="M55.2 118Q47.8 118 43.6 113.8Q39.4 109.6 39.4 102.2V81.5H26.4V69.6H39.4V56H52.6V69.6H71.5V81.5H52.6V101.7Q52.6 103.7 53.6 104.9Q54.6 106.1 56.6 106.1H71.1V118ZM103.2 118.9Q96.8 118.9 92 116.5Q87.3 114 84.7 109.7Q82.1 105.3 82.1 99.5V88.1Q82.1 82.3 84.7 77.9Q87.3 73.6 92 71.1Q96.8 68.7 103.2 68.7Q109.7 68.7 114.4 71.1Q119.1 73.6 121.7 77.9Q124.3 82.3 124.3 88.1V99.5Q124.3 105.3 121.7 109.7Q119.1 114 114.4 116.5Q109.7 118.9 103.2 118.9ZM103.2 107.4Q107.1 107.4 109.1 105.4Q111.1 103.3 111.1 99.5V88.1Q111.1 84.2 109.1 82.2Q107.1 80.2 103.2 80.2Q99.4 80.2 97.3 82.2Q95.3 84.2 95.3 88.1V99.5Q95.3 103.3 97.3 105.4Q99.4 107.4 103.2 107.4ZM132.9 118V69.6H143.8V77.1H143.9Q144.2 73.4 146.4 71.1Q148.6 68.7 152 68.7Q155.2 68.7 157.5 71Q159.9 73.2 160.6 76.8Q160.8 73.1 163.1 70.9Q165.4 68.7 168.8 68.7Q173.2 68.7 176.1 72.2Q179.1 75.6 179.1 81V118H167.7V82.5Q167.7 78.3 164.4 78.3Q161.2 78.3 161.2 82.5V118H150.8V82.5Q150.8 78.3 147.6 78.3Q144.3 78.3 144.3 82.5V118ZM202.6 118.9Q195.3 118.9 191.1 114.7Q186.9 110.5 186.9 103.7Q186.9 96.4 192.1 92.2Q197.3 88 206.7 88H216.2V84.9Q216.2 82.2 214.3 80.6Q212.4 79.1 208.9 79.1Q205.5 79.1 203.6 80.4Q201.6 81.7 201.4 84.3H188.9Q189.2 77.2 194.5 72.9Q199.9 68.7 209.1 68.7Q218.7 68.7 224 73.1Q229.4 77.5 229.4 85.4V118H216.6V109.6Q215.8 114 212 116.4Q208.3 118.9 202.6 118.9ZM207.2 108.3Q211.4 108.3 213.8 106.3Q216.2 104.2 216.2 100.8V95.9H207Q203.4 95.9 201.5 97.6Q199.6 99.3 199.6 102.1Q199.6 104.8 201.6 106.6Q203.6 108.3 207.2 108.3ZM266.4 118Q259 118 254.8 113.8Q250.6 109.6 250.6 102.2V81.5H237.6V69.6H250.6V56H263.8V69.6H282.7V81.5H263.8V101.7Q263.8 103.7 264.8 104.9Q265.8 106.1 267.8 106.1H282.3V118Z"/><path fill="#ff6b98" d="M314.4 118.9Q308 118.9 303.2 116.5Q298.5 114 295.9 109.7Q293.3 105.3 293.3 99.5V88.1Q293.3 82.3 295.9 77.9Q298.5 73.6 303.2 71.1Q308 68.7 314.4 68.7Q320.9 68.7 325.6 71.1Q330.3 73.6 332.9 77.9Q335.5 82.3 335.5 88.1V99.5Q335.5 105.3 332.9 109.7Q330.3 114 325.6 116.5Q320.9 118.9 314.4 118.9ZM314.4 107.4Q318.3 107.4 320.3 105.4Q322.3 103.3 322.3 99.5V88.1Q322.3 84.2 320.3 82.2Q318.3 80.2 314.4 80.2Q310.6 80.2 308.5 82.2Q306.5 84.2 306.5 88.1V99.5Q306.5 103.3 308.5 105.4Q310.6 107.4 314.4 107.4Z"/><path fill="#fde68a" d="M55.2 214Q47.8 214 43.6 209.8Q39.4 205.6 39.4 198.2V177.5H26.4V165.6H39.4V152H52.6V165.6H71.5V177.5H52.6V197.7Q52.6 199.7 53.6 200.9Q54.6 202.1 56.6 202.1H71.1V214ZM103.2 214.9Q93.4 214.9 87.9 209.6Q82.4 204.3 82.4 195.2V165.6H95.6V195.1Q95.6 203.4 103.2 203.4Q106.8 203.4 108.8 201.3Q110.8 199.1 110.8 195.1V165.6H124V195.2Q124 204.4 118.4 209.6Q112.9 214.9 103.2 214.9ZM135.4 214V165.6H148.2V174.4Q149.2 170 152.7 167.4Q156.2 164.7 161.2 164.7Q168.2 164.7 172.5 169.6Q176.8 174.6 176.8 182.8V214H163.6V184.1Q163.6 180.3 161.6 178.2Q159.6 176.2 156.1 176.2Q152.6 176.2 150.6 178.2Q148.6 180.3 148.6 184.1V214ZM188.2 214V165.6H201V174.4Q202 170 205.5 167.4Q209 164.7 214 164.7Q221 164.7 225.3 169.6Q229.6 174.6 229.6 182.8V214H216.4V184.1Q216.4 180.3 214.4 178.2Q212.4 176.2 208.9 176.2Q205.4 176.2 203.4 178.2Q201.4 180.3 201.4 184.1V214ZM261.7 214.9Q255.3 214.9 250.5 212.5Q245.7 210 243.1 205.7Q240.5 201.3 240.5 195.5V184.1Q240.5 178.3 243.1 173.9Q245.7 169.6 250.5 167.1Q255.3 164.7 261.7 164.7Q268.1 164.7 272.8 167.1Q277.5 169.6 280.1 173.9Q282.7 178.3 282.7 184.1V193.1H253.1V195.5Q253.1 200.1 255.2 202.2Q257.4 204.3 261.7 204.3Q264.5 204.3 266.6 203.4Q268.7 202.6 269.1 200.8H282Q280.6 207.1 275.1 211Q269.5 214.9 261.7 214.9ZM253.1 184.1V185.2L270.1 185V183.9Q270.1 179.4 268.1 177Q266 174.5 261.7 174.5Q257.4 174.5 255.2 177Q253.1 179.6 253.1 184.1ZM322.8 214Q317.7 214 313.8 211.8Q309.9 209.7 307.8 205.8Q305.6 201.9 305.6 196.8V161.6H290.2V149.8H318.8V196.4Q318.8 199 320.3 200.5Q321.7 202.1 324.1 202.1H337.7V214Z"/><path fill="#2fb36d" transform="translate(235 15.3) scale(.62)" d="M128 64C128 48 120 38 112 32L120 28C130 36 136 48 136 62Z M134 52C146 34 170 30 186 36C176 54 154 62 134 58Z"/><rect x="350.8" y="150" width="30" height="68" rx="3" fill="#fde68a"/></svg>';
+var WM_BANNER = '<svg class="tt-wm" viewBox="26 12 370 222" role="img" aria-label="Tomato Tunnel"><path fill="#ffffff" d="M55.2 118Q47.8 118 43.6 113.8Q39.4 109.6 39.4 102.2V81.5H26.4V69.6H39.4V56H52.6V69.6H71.5V81.5H52.6V101.7Q52.6 103.7 53.6 104.9Q54.6 106.1 56.6 106.1H71.1V118ZM103.2 118.9Q96.8 118.9 92 116.5Q87.3 114 84.7 109.7Q82.1 105.3 82.1 99.5V88.1Q82.1 82.3 84.7 77.9Q87.3 73.6 92 71.1Q96.8 68.7 103.2 68.7Q109.7 68.7 114.4 71.1Q119.1 73.6 121.7 77.9Q124.3 82.3 124.3 88.1V99.5Q124.3 105.3 121.7 109.7Q119.1 114 114.4 116.5Q109.7 118.9 103.2 118.9ZM103.2 107.4Q107.1 107.4 109.1 105.4Q111.1 103.3 111.1 99.5V88.1Q111.1 84.2 109.1 82.2Q107.1 80.2 103.2 80.2Q99.4 80.2 97.3 82.2Q95.3 84.2 95.3 88.1V99.5Q95.3 103.3 97.3 105.4Q99.4 107.4 103.2 107.4ZM132.9 118V69.6H143.8V77.1H143.9Q144.2 73.4 146.4 71.1Q148.6 68.7 152 68.7Q155.2 68.7 157.5 71Q159.9 73.2 160.6 76.8Q160.8 73.1 163.1 70.9Q165.4 68.7 168.8 68.7Q173.2 68.7 176.1 72.2Q179.1 75.6 179.1 81V118H167.7V82.5Q167.7 78.3 164.4 78.3Q161.2 78.3 161.2 82.5V118H150.8V82.5Q150.8 78.3 147.6 78.3Q144.3 78.3 144.3 82.5V118ZM202.6 118.9Q195.3 118.9 191.1 114.7Q186.9 110.5 186.9 103.7Q186.9 96.4 192.1 92.2Q197.3 88 206.7 88H216.2V84.9Q216.2 82.2 214.3 80.6Q212.4 79.1 208.9 79.1Q205.5 79.1 203.6 80.4Q201.6 81.7 201.4 84.3H188.9Q189.2 77.2 194.5 72.9Q199.9 68.7 209.1 68.7Q218.7 68.7 224 73.1Q229.4 77.5 229.4 85.4V118H216.6V109.6Q215.8 114 212 116.4Q208.3 118.9 202.6 118.9ZM207.2 108.3Q211.4 108.3 213.8 106.3Q216.2 104.2 216.2 100.8V95.9H207Q203.4 95.9 201.5 97.6Q199.6 99.3 199.6 102.1Q199.6 104.8 201.6 106.6Q203.6 108.3 207.2 108.3ZM266.4 118Q259 118 254.8 113.8Q250.6 109.6 250.6 102.2V81.5H237.6V69.6H250.6V56H263.8V69.6H282.7V81.5H263.8V101.7Q263.8 103.7 264.8 104.9Q265.8 106.1 267.8 106.1H282.3V118Z"/><path fill="#ff6b98" d="M314.4 118.9Q308 118.9 303.2 116.5Q298.5 114 295.9 109.7Q293.3 105.3 293.3 99.5V88.1Q293.3 82.3 295.9 77.9Q298.5 73.6 303.2 71.1Q308 68.7 314.4 68.7Q320.9 68.7 325.6 71.1Q330.3 73.6 332.9 77.9Q335.5 82.3 335.5 88.1V99.5Q335.5 105.3 332.9 109.7Q330.3 114 325.6 116.5Q320.9 118.9 314.4 118.9ZM314.4 107.4Q318.3 107.4 320.3 105.4Q322.3 103.3 322.3 99.5V88.1Q322.3 84.2 320.3 82.2Q318.3 80.2 314.4 80.2Q310.6 80.2 308.5 82.2Q306.5 84.2 306.5 88.1V99.5Q306.5 103.3 308.5 105.4Q310.6 107.4 314.4 107.4Z"/><path fill="#fde68a" d="M55.2 214Q47.8 214 43.6 209.8Q39.4 205.6 39.4 198.2V177.5H26.4V165.6H39.4V152H52.6V165.6H71.5V177.5H52.6V197.7Q52.6 199.7 53.6 200.9Q54.6 202.1 56.6 202.1H71.1V214ZM103.2 214.9Q93.4 214.9 87.9 209.6Q82.4 204.3 82.4 195.2V165.6H95.6V195.1Q95.6 203.4 103.2 203.4Q106.8 203.4 108.8 201.3Q110.8 199.1 110.8 195.1V165.6H124V195.2Q124 204.4 118.4 209.6Q112.9 214.9 103.2 214.9ZM135.4 214V165.6H148.2V174.4Q149.2 170 152.7 167.4Q156.2 164.7 161.2 164.7Q168.2 164.7 172.5 169.6Q176.8 174.6 176.8 182.8V214H163.6V184.1Q163.6 180.3 161.6 178.2Q159.6 176.2 156.1 176.2Q152.6 176.2 150.6 178.2Q148.6 180.3 148.6 184.1V214ZM188.2 214V165.6H201V174.4Q202 170 205.5 167.4Q209 164.7 214 164.7Q221 164.7 225.3 169.6Q229.6 174.6 229.6 182.8V214H216.4V184.1Q216.4 180.3 214.4 178.2Q212.4 176.2 208.9 176.2Q205.4 176.2 203.4 178.2Q201.4 180.3 201.4 184.1V214ZM261.7 214.9Q255.3 214.9 250.5 212.5Q245.7 210 243.1 205.7Q240.5 201.3 240.5 195.5V184.1Q240.5 178.3 243.1 173.9Q245.7 169.6 250.5 167.1Q255.3 164.7 261.7 164.7Q268.1 164.7 272.8 167.1Q277.5 169.6 280.1 173.9Q282.7 178.3 282.7 184.1V193.1H253.1V195.5Q253.1 200.1 255.2 202.2Q257.4 204.3 261.7 204.3Q264.5 204.3 266.6 203.4Q268.7 202.6 269.1 200.8H282Q280.6 207.1 275.1 211Q269.5 214.9 261.7 214.9ZM253.1 184.1V185.2L270.1 185V183.9Q270.1 179.4 268.1 177Q266 174.5 261.7 174.5Q257.4 174.5 255.2 177Q253.1 179.6 253.1 184.1ZM322.8 214Q317.7 214 313.8 211.8Q309.9 209.7 307.8 205.8Q305.6 201.9 305.6 196.8V161.6H290.2V149.8H318.8V196.4Q318.8 199 320.3 200.5Q321.7 202.1 324.1 202.1H337.7V214Z"/><path fill="#2fb36d" transform="translate(235 15.3) scale(.62)" d="M128 64C128 48 120 38 112 32L120 28C130 36 136 48 136 62Z M134 52C146 34 170 30 186 36C176 54 154 62 134 58Z"/><rect x="350.8" y="150" width="30" height="68" rx="3" fill="#fde68a"/></svg>';
 var LOCKUP_THEME = '<svg class="tt-wm tt-lock" viewBox="12 20 600 222" role="img" aria-label="Tomato Tunnel"><g transform="translate(16 16) scale(.875)"><ellipse cx="128" cy="150" rx="100" ry="88" fill="#ec185d"/><path fill="#2fb36d" d="M128 48L135.6 62.7L166 61.8L140.4 70L151.5 84.2L128 74.5L104.5 84.2L115.6 70L90 61.8L120.4 62.7Z"/><rect x="123" y="38" width="10" height="26" rx="5" fill="#2fb36d"/><path d="M80 120L116 150L80 180" fill="none" stroke="#fff" stroke-width="20"/><rect x="130" y="166" width="44" height="18" fill="#fff"/></g><g transform="translate(236 0)"><path fill="currentColor" d="M55.2 118Q47.8 118 43.6 113.8Q39.4 109.6 39.4 102.2V81.5H26.4V69.6H39.4V56H52.6V69.6H71.5V81.5H52.6V101.7Q52.6 103.7 53.6 104.9Q54.6 106.1 56.6 106.1H71.1V118ZM103.2 118.9Q96.8 118.9 92 116.5Q87.3 114 84.7 109.7Q82.1 105.3 82.1 99.5V88.1Q82.1 82.3 84.7 77.9Q87.3 73.6 92 71.1Q96.8 68.7 103.2 68.7Q109.7 68.7 114.4 71.1Q119.1 73.6 121.7 77.9Q124.3 82.3 124.3 88.1V99.5Q124.3 105.3 121.7 109.7Q119.1 114 114.4 116.5Q109.7 118.9 103.2 118.9ZM103.2 107.4Q107.1 107.4 109.1 105.4Q111.1 103.3 111.1 99.5V88.1Q111.1 84.2 109.1 82.2Q107.1 80.2 103.2 80.2Q99.4 80.2 97.3 82.2Q95.3 84.2 95.3 88.1V99.5Q95.3 103.3 97.3 105.4Q99.4 107.4 103.2 107.4ZM132.9 118V69.6H143.8V77.1H143.9Q144.2 73.4 146.4 71.1Q148.6 68.7 152 68.7Q155.2 68.7 157.5 71Q159.9 73.2 160.6 76.8Q160.8 73.1 163.1 70.9Q165.4 68.7 168.8 68.7Q173.2 68.7 176.1 72.2Q179.1 75.6 179.1 81V118H167.7V82.5Q167.7 78.3 164.4 78.3Q161.2 78.3 161.2 82.5V118H150.8V82.5Q150.8 78.3 147.6 78.3Q144.3 78.3 144.3 82.5V118ZM202.6 118.9Q195.3 118.9 191.1 114.7Q186.9 110.5 186.9 103.7Q186.9 96.4 192.1 92.2Q197.3 88 206.7 88H216.2V84.9Q216.2 82.2 214.3 80.6Q212.4 79.1 208.9 79.1Q205.5 79.1 203.6 80.4Q201.6 81.7 201.4 84.3H188.9Q189.2 77.2 194.5 72.9Q199.9 68.7 209.1 68.7Q218.7 68.7 224 73.1Q229.4 77.5 229.4 85.4V118H216.6V109.6Q215.8 114 212 116.4Q208.3 118.9 202.6 118.9ZM207.2 108.3Q211.4 108.3 213.8 106.3Q216.2 104.2 216.2 100.8V95.9H207Q203.4 95.9 201.5 97.6Q199.6 99.3 199.6 102.1Q199.6 104.8 201.6 106.6Q203.6 108.3 207.2 108.3ZM266.4 118Q259 118 254.8 113.8Q250.6 109.6 250.6 102.2V81.5H237.6V69.6H250.6V56H263.8V69.6H282.7V81.5H263.8V101.7Q263.8 103.7 264.8 104.9Q265.8 106.1 267.8 106.1H282.3V118Z"/><path fill="#ec185d" d="M314.4 118.9Q308 118.9 303.2 116.5Q298.5 114 295.9 109.7Q293.3 105.3 293.3 99.5V88.1Q293.3 82.3 295.9 77.9Q298.5 73.6 303.2 71.1Q308 68.7 314.4 68.7Q320.9 68.7 325.6 71.1Q330.3 73.6 332.9 77.9Q335.5 82.3 335.5 88.1V99.5Q335.5 105.3 332.9 109.7Q330.3 114 325.6 116.5Q320.9 118.9 314.4 118.9ZM314.4 107.4Q318.3 107.4 320.3 105.4Q322.3 103.3 322.3 99.5V88.1Q322.3 84.2 320.3 82.2Q318.3 80.2 314.4 80.2Q310.6 80.2 308.5 82.2Q306.5 84.2 306.5 88.1V99.5Q306.5 103.3 308.5 105.4Q310.6 107.4 314.4 107.4Z"/><path fill="#7b6cc4" d="M55.2 214Q47.8 214 43.6 209.8Q39.4 205.6 39.4 198.2V177.5H26.4V165.6H39.4V152H52.6V165.6H71.5V177.5H52.6V197.7Q52.6 199.7 53.6 200.9Q54.6 202.1 56.6 202.1H71.1V214ZM103.2 214.9Q93.4 214.9 87.9 209.6Q82.4 204.3 82.4 195.2V165.6H95.6V195.1Q95.6 203.4 103.2 203.4Q106.8 203.4 108.8 201.3Q110.8 199.1 110.8 195.1V165.6H124V195.2Q124 204.4 118.4 209.6Q112.9 214.9 103.2 214.9ZM135.4 214V165.6H148.2V174.4Q149.2 170 152.7 167.4Q156.2 164.7 161.2 164.7Q168.2 164.7 172.5 169.6Q176.8 174.6 176.8 182.8V214H163.6V184.1Q163.6 180.3 161.6 178.2Q159.6 176.2 156.1 176.2Q152.6 176.2 150.6 178.2Q148.6 180.3 148.6 184.1V214ZM188.2 214V165.6H201V174.4Q202 170 205.5 167.4Q209 164.7 214 164.7Q221 164.7 225.3 169.6Q229.6 174.6 229.6 182.8V214H216.4V184.1Q216.4 180.3 214.4 178.2Q212.4 176.2 208.9 176.2Q205.4 176.2 203.4 178.2Q201.4 180.3 201.4 184.1V214ZM261.7 214.9Q255.3 214.9 250.5 212.5Q245.7 210 243.1 205.7Q240.5 201.3 240.5 195.5V184.1Q240.5 178.3 243.1 173.9Q245.7 169.6 250.5 167.1Q255.3 164.7 261.7 164.7Q268.1 164.7 272.8 167.1Q277.5 169.6 280.1 173.9Q282.7 178.3 282.7 184.1V193.1H253.1V195.5Q253.1 200.1 255.2 202.2Q257.4 204.3 261.7 204.3Q264.5 204.3 266.6 203.4Q268.7 202.6 269.1 200.8H282Q280.6 207.1 275.1 211Q269.5 214.9 261.7 214.9ZM253.1 184.1V185.2L270.1 185V183.9Q270.1 179.4 268.1 177Q266 174.5 261.7 174.5Q257.4 174.5 255.2 177Q253.1 179.6 253.1 184.1ZM322.8 214Q317.7 214 313.8 211.8Q309.9 209.7 307.8 205.8Q305.6 201.9 305.6 196.8V161.6H290.2V149.8H318.8V196.4Q318.8 199 320.3 200.5Q321.7 202.1 324.1 202.1H337.7V214Z"/><path fill="#2fb36d" transform="translate(235 15.3) scale(.62)" d="M128 64C128 48 120 38 112 32L120 28C130 36 136 48 136 62Z M134 52C146 34 170 30 186 36C176 54 154 62 134 58Z"/><rect x="350.8" y="150" width="30" height="68" rx="3" fill="#ec185d"/></g></svg>';
 function bannerSvg(k) { var b = BANNERS.filter(function(x) { return x[0] === k; })[0] || BANNERS[0]; return b[2]; }
 
@@ -248,6 +265,41 @@ function fmtDur(sec) {
 }
 function hhmm(ts) { var d = new Date(ts * 1000); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
 
+var METHOD_NAMES = { 'none': 'Off', 'iface': 'Restart interface', 'at': 'Airplane mode (AT)', 'mm': 'ModemManager', 'hilink': 'HiLink / Orbit', 'adb': 'Android phone (ADB)' };
+// ip4 parses a possibly short IPv4 address; missing parts get fill (0 or 255).
+function ip4(s, fill) {
+	var f = s.replace(/\.$/, '').split('.');
+	if (!s || f.length > 4) return null;
+	var out = [];
+	for (var i = 0; i < 4; i++) {
+		if (i >= f.length) { out.push(fill); continue; }
+		if (!/^\d{1,3}$/.test(f[i]) || +f[i] > 255) return null;
+		out.push(+f[i]);
+	}
+	return out;
+}
+function ipNum(a) { return ((a[0] * 256 + a[1]) * 256 + a[2]) * 256 + a[3]; }
+// rangeMeans explains one range row: [ok, text].
+function rangeMeans(from, to) {
+	if (!from && !to) return [ true, '' ];
+	if (!from) return [ false, 'Fill in "From"' ];
+	if (to) {
+		var a = ip4(from, 0), b = ip4(to, 255);
+		if (!a || !b) return [ false, 'Not an IPv4 address' ];
+		if (ipNum(b) < ipNum(a)) return [ false, '"To" is lower than "From"' ];
+		return [ true, a.join('.') + ' – ' + b.join('.') ];
+	}
+	var m = /^([\d.]+)\/(\d{1,2})$/.exec(from);
+	if (m) {
+		var c = ip4(m[1], 0), n = +m[2];
+		if (!c || n > 32) return [ false, 'Not a CIDR block' ];
+		var size = Math.pow(2, 32 - n), lo = Math.floor(ipNum(c) / size) * size, hi = lo + size - 1;
+		var dot = function(x) { return [ Math.floor(x / 16777216) % 256, Math.floor(x / 65536) % 256, Math.floor(x / 256) % 256, x % 256 ].join('.'); };
+		return [ true, 'CIDR: ' + dot(lo) + ' – ' + dot(hi) ];
+	}
+	if (!/^[\d.:a-fA-F]+$/.test(from)) return [ false, 'Not an IP prefix' ];
+	return [ true, 'Starts with ' + from ];
+}
 var uid = 0;
 function section(title, kids, descr) {
 	return E('div', { 'class': 'cbi-section' }, [
@@ -323,7 +375,11 @@ return view.extend({
 			ctl([ 'ifaces' ]),
 			ctlJSON([ 'latency-cached' ]),
 			ctl([ 'xray-version' ]),
-			ctl([ 'xray-system' ])
+			ctl([ 'xray-system' ]),
+			uci.load('network').catch(function() {}),
+			ctl([ 'wanlist' ]).then(function(t) {
+				(t || '').split('\n').forEach(function(l) { var f = l.trim().split(/\s+/); if (f[0] && f[1]) L3[f[0]] = f[1]; });
+			}).catch(function() {})
 		]); });
 	},
 
@@ -369,10 +425,7 @@ return view.extend({
 		this.tabsEl = E('ul', { 'class': 'cbi-tabmenu' });
 		this.bodyEl = E('div', { 'class': 'tt-wrap' });
 		var root = E('div', { 'class': 'cbi-map tt-wrap' }, [
-			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-18' }),
-			E('h2', { 'name': 'content' }, 'Tomato Tunnel'),
-			E('div', { 'class': 'cbi-map-descr' }, [ 'SSH, ZiVPN and Xray tunnel · v' + this.version + ' · by ',
-				E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, '@dudulrealnofek') ]),
+			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-23' }),
 			this.bannerEl = E('div'),
 			this.tabsEl,
 			this.bodyEl
@@ -392,10 +445,7 @@ return view.extend({
 				E('a', { 'href': '#' + t[0], 'click': function(ev) { ev.preventDefault(); self.show(t[0]); } }, t[1])));
 		});
 		this.bannerEl.innerHTML = '';
-		if (tab === 'dashboard') {
-			var b = this.renderBanner();
-			if (b) this.bannerEl.appendChild(b);
-		}
+		this.bannerEl.appendChild(this.renderBanner());
 		this.refs = {};
 		var body;
 		switch (tab) {
@@ -438,16 +488,22 @@ return view.extend({
 		});
 	},
 
+	// The page header: the chosen banner, or a plain card with No banner.
 	renderBanner: function() {
 		var mode = this.get('banner', 'tomato');
 		if (mode === 'default') mode = 'tomato';
-		if (mode === 'none') return null;
-		var art = mode === 'custom' ? E('img', { 'src': '/luci-static/tomato-tunnel/banner.img?' + Date.now(), 'alt': '' }) : raw(bannerSvg(mode));
-		return E('div', { 'class': 'tt-banner' }, [ art, E('div', { 'class': 'tt-bt' }, [
-			E('span', { 'class': 'tt-name' }, raw(WM_BANNER)),
-			E('span', { 'class': 'tt-sub' }, 'SSH · Payload · SSL/SNI · WebSocket · SlowDNS · Enhanced · ZiVPN · Xray'),
-			E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, 'by @dudulrealnofek')
-		]) ]);
+		var plain = mode === 'none';
+		var art = plain ? '' : mode === 'custom' ? E('img', { 'src': '/luci-static/tomato-tunnel/banner.img?' + (this.bannerStamp || 1), 'alt': '' }) : raw(bannerSvg(mode));
+		return E('div', { 'class': 'tt-banner' + (plain ? ' plain cbi-section' : '') }, [ art,
+			E('div', { 'class': 'tt-bt' }, [
+				E('h2', { 'name': 'content', 'class': 'tt-name' }, raw(WM_BANNER)),
+				E('span', { 'class': 'tt-sub' }, 'SSH · Payload · SSL/SNI · WebSocket · SlowDNS · Enhanced · ZiVPN · Xray')
+			]),
+			E('div', { 'class': 'tt-bv' }, [
+				E('span', { 'class': 'tt-ver tt-mono' }, 'v' + this.version),
+				E('a', { 'class': 'tt-by', 'href': TG, 'target': '_blank', 'rel': 'noopener' }, 'by @dudulrealnofek')
+			])
+		]);
 	},
 
 	renderStatus: function() {
@@ -489,10 +545,12 @@ return view.extend({
 		r.noteBox = E('div');
 		r.chart = E('div', { 'class': 'tt-chartbox' });
 		r.det = E('div', { 'class': 'tt-det' });
+		r.balBox = E('div');
 		out.push(section(null, [
 			E('div', { 'class': 'tt-head' }, [ E('div', { 'class': 'tt-hl' }, [ r.stateEl, r.subEl ]), r.acts ]),
 			r.swBox,
 			r.noteBox,
+			r.balBox,
 			E('div', { 'class': 'tt-stats' }, [ stat('Download', 'dl', 'tt-dl'), stat('Upload', 'ul', 'tt-ul'), stat('Ping', 'ping', 'tt-ok'), stat('Today', 'today') ]),
 			E('div', { 'class': 'tt-dash2' }, [
 				E('div', { 'class': 'tt-chart' }, [
@@ -504,7 +562,10 @@ return view.extend({
 			])
 		]));
 
-		r.polEl = E('div', { 'class': 'tt-seg', 'role': 'group', 'aria-label': 'Profile selection' });
+		r.modemBox = E('div');
+		out.push(r.modemBox);
+
+		r.polEl = E('div', { 'class': 'tt-seg tt-pol', 'role': 'group', 'aria-label': 'Profile selection' });
 		r.polHint = E('div', { 'class': 'cbi-section-descr tt-polhint' });
 		r.testBtn = E('button', { 'type': 'button', 'class': 'btn cbi-button cbi-button-neutral tt-ic', 'title': 'Test latency', 'aria-label': 'Test latency',
 			'click': function(ev) { self.testLatency(ev.currentTarget); } }, raw(BOLT));
@@ -614,6 +675,7 @@ return view.extend({
 			r.det.appendChild(drow('Reconnects today', on ? String(st.reconnects_today || 0) : '—'));
 		}
 
+		this.paintBalance();
 		r.swBox.innerHTML = '';
 		if (live && st.switching)
 			r.swBox.appendChild(E('div', { 'class': 'alert-message warning tt-swbox' }, [
@@ -623,13 +685,15 @@ return view.extend({
 			]));
 
 		this.paintNotes();
-		var ipBtn = this.get('ip_method', this.get('restart_modem', '0') === '1' ? 'iface' : 'none') !== 'none' && this.get('ip_button', '1') !== '0';
+		var ms = this.modems(), btns = this.get('ip_button', '1') !== '0';
+		var ipBtn = ms.length === 1 && btns;
+		this.paintModems(btns && ms.length > 1 ? ms : []);
 		var key = (live ? 'on' : 'off') + (ipBtn ? (st.changing_ip ? 'C' : 'c') : '');
 		if (r.actsKey !== key) {
 			r.actsKey = key;
 			r.acts.innerHTML = '';
 			if (ipBtn) {
-				var cb = button(st.changing_ip ? 'Changing IP…' : 'Change IP', 'neutral', function(ev) { self.changeIP(ev.currentTarget); });
+				var cb = button(st.changing_ip ? 'Changing IP…' : 'Change IP', 'neutral', function(ev) { self.changeIP(ev.currentTarget, ms[0].sid); });
 				if (st.changing_ip) cb.disabled = true;
 				r.acts.appendChild(cb);
 			}
@@ -642,12 +706,60 @@ return view.extend({
 		this.paintProfiles();
 	},
 
-	changeIP: function(btn) {
+	paintBalance: function() {
+		var r = this.refs, st = this.st || {};
+		if (!r.balBox) return;
+		var list = (st.state && st.state !== 'stopped' && this.policy() === 'balance') ? (st.balance || []) : [];
+		r.balBox.innerHTML = '';
+		if (!list.length) return;
+		var tot = list.reduce(function(a, b) { return a + (b.rate_rx || 0); }, 0) || 1;
+		r.balBox.appendChild(E('div', { 'class': 'tt-bal' }, [
+			E('div', { 'class': 'tt-balr tt-balh' }, [ E('span', {}, 'Account · modem'), E('span', {}, 'Speed now'), E('span', {}, 'Share of download'), E('span', {}, 'Flows') ])
+		].concat(list.map(function(b) {
+			var pct = b.state === 'connected' ? Math.round((b.rate_rx || 0) / tot * 100) : 0;
+			return E('div', { 'class': 'tt-balr' }, [
+				E('span', { 'class': 'tt-mn' }, [ E('strong', {}, b.name), E('span', { 'class': 'tt-ss' + (b.error ? ' tt-errc' : '') },
+					(b.wan || 'system route') + (b.ping_ms > 0 ? ' · ' + b.ping_ms + ' ms' : '') + ((b.weight || 1) > 1 ? ' · weight ' + b.weight : '') + (b.main ? ' · main' : '') + (b.paused ? ' · paused, no answer' : '') + (b.state !== 'connected' ? ' · ' + (b.error || 'connecting…') : '')) ]),
+				E('span', { 'class': 'tt-mono' }, [ E('span', { 'class': 'tt-dl' }, '↓ ' + fmtRate(b.rate_rx || 0)), ' ', E('span', { 'class': 'tt-ul' }, '↑ ' + fmtRate(b.rate_tx || 0)) ]),
+				E('span', { 'class': 'tt-balp' }, [ E('span', { 'class': 'tt-qbar' }, E('i', { 'style': 'width:' + pct + '%' })), E('span', { 'class': 'tt-mono' }, pct + '%') ]),
+				E('span', { 'class': 'tt-mono', 'title': 'TCP connections / UDP flows' }, String(b.streams || 0) + (b.udp ? ' + ' + b.udp + ' udp' : ''))
+			]);
+		}))));
+	},
+
+	paintModems: function(ms) {
+		var r = this.refs, self = this, st = this.st || {};
+		if (!r.modemBox) return;
+		var live = {};
+		(st.modems || []).forEach(function(x) { live[x.id] = x; });
+		var key = JSON.stringify([ ms.map(function(m) { return [ m.sid, m.name() ]; }), st.modems || [] ]);
+		if (r.modemKey === key) return;
+		r.modemKey = key;
+		r.modemBox.innerHTML = '';
+		if (!ms.length) return;
+		r.modemBox.appendChild(E('div', { 'class': 'cbi-section' }, [
+			E('div', { 'class': 'tt-sechead' }, [ E('h3', {}, [ 'Modems ', E('small', { 'class': 'tt-muted' }, '· change IP per modem') ]) ]),
+			E('div', { 'class': 'cbi-section-node' }, E('div', { 'class': 'tt-mgrid' }, ms.map(function(m) {
+				var x = live[m.sid] || {};
+				var msg = x.changing ? 'changing…' : (x.msg || '');
+				var b = button(x.changing ? 'Changing…' : 'Change IP', x.tunnel ? 'action' : 'neutral', function(ev) { self.changeIP(ev.currentTarget, m.sid, m.name()); });
+				if (x.changing) b.disabled = true;
+				return E('div', { 'class': 'tt-mcard' + (x.tunnel ? ' on' : '') }, [
+					E('div', { 'class': 'tt-mch' }, [ E('strong', {}, m.name()), x.tunnel ? E('span', { 'class': 'tt-mtag' }, 'TUNNEL') : '' ]),
+					E('span', { 'class': 'tt-mono' }, x.ip || '—'),
+					E('span', { 'class': 'tt-ss' + (x.changing ? ' tt-warnc' : '') }, msg || METHOD_NAMES[m.get('ip_method', 'none')]),
+					b
+				]);
+			})))
+		]));
+	},
+
+	changeIP: function(btn, id, name) {
 		var self = this;
-		if (!confirm('Change the IP now? The tunnel reconnects after the new IP is up.')) return;
+		if (!confirm('Change the IP' + (name ? ' of ' + name : '') + ' now? The tunnel reconnects if it goes out on this modem.')) return Promise.resolve();
 		btn.disabled = true;
-		return ctl([ 'changeip' ]).then(function() {
-			ui.addNotification(null, E('p', 'Changing IP… progress is in the log.'), 'info');
+		return ctl([ 'changeip' ].concat(id ? [ id ] : [])).then(function() {
+			ui.addNotification(null, E('p', 'Changing IP' + (name ? ' of ' + name : '') + '… progress is in the log.'), 'info');
 			setTimeout(function() { self.refresh(); }, 800);
 		});
 	},
@@ -675,7 +787,7 @@ return view.extend({
 
 	policy: function() {
 		var p = this.get('policy', '');
-		if (p === 'manual' || p === 'fallback' || p === 'auto') return p;
+		if (p === 'manual' || p === 'fallback' || p === 'auto' || p === 'balance') return p;
 		return this.get('failover', '1') === '0' ? 'manual' : 'fallback';
 	},
 
@@ -688,15 +800,19 @@ return view.extend({
 		var cur = live && st.profile ? st.profile : this.activeId();
 		var lf = st.login_failed || {};
 		var warn = +this.get('expiry_warn', '3');
-		var key = [ pol, cur, live, st.switching || '', JSON.stringify(lat), JSON.stringify(lf), ps.map(function(p) { return p['.name'] + p.name + (p.expires || '') + (p.sub_status || ''); }).join(), new Date().getDate() ].join('|');
+		var balSt = {};
+		(st.balance || []).forEach(function(b) { balSt[b.key] = b; });
+		var key = [ pol, cur, live, st.switching || '', JSON.stringify(lat), JSON.stringify(lf), ps.map(function(p) { return p['.name'] + p.name + (p.expires || '') + (p.sub_status || '') + (p.wan || '') + (p.balance || '') + (p.balance_weight || ''); }).join(), new Date().getDate(),
+			pol === 'balance' ? (st.balance || []).map(function(b) { return b.key + b.state + (b.error || '') + (b.paused ? 'p' : ''); }).join() : '' ].join('|');
 		if (r.gridKey === key) return;
 		r.gridKey = key;
 
-		var POL = [ [ 'manual', 'Manual' ], [ 'fallback', 'Fallback' ], [ 'auto', 'Auto' ] ];
+		var POL = [ [ 'manual', 'Manual' ], [ 'fallback', 'Fallback' ], [ 'auto', 'Auto' ], [ 'balance', 'Balance' ] ];
 		var HINT = {
 			manual: 'Manual: stays on the chosen profile.',
 			fallback: 'Fallback: next profile when the current one fails.',
-			auto: 'Auto: moves to a faster profile (checked every 5 min).'
+			auto: 'Auto: moves to a faster profile (checked every 5 min).',
+			balance: 'Balance: ticked accounts run together and share the traffic. Click a card to tick or untick.'
 		};
 		r.polEl.innerHTML = '';
 		POL.forEach(function(o) {
@@ -736,19 +852,35 @@ return view.extend({
 			if (ex && ex.expired && !isCur && pol !== 'manual') { tag = 'Skipped by Auto/Fallback'; tcls = 'tt-bad'; }
 			var dis = !!(live && st.switching && !isCur);
 			var go = function() { if (!isCur && !dis) self.switchTo(id, p.name || id, live); };
+			if (pol === 'balance') {
+				var bs = balSt[id], on = isCur || inBal(p);
+				dis = false;
+				if (isCur) { tag = live ? '● Main (fastest) · always in' : '● Main'; tcls = 'tt-ok'; }
+				else if (!on) { tag = 'Not in Balance · click to add'; tcls = 'tt-muted'; }
+				else if (bs && bs.state === 'connected' && bs.paused) { tag = 'In Balance · paused, no answer'; tcls = 'tt-busy'; }
+				else if (bs && bs.state === 'connected') { tag = '● In Balance · ' + bs.streams + ' conn'; tcls = 'tt-ok'; }
+				else if (bs && bs.error) { tag = 'In Balance · ' + bs.error; tcls = 'tt-bad'; }
+				else { tag = live ? 'In Balance · connecting…' : 'In Balance'; tcls = live ? 'tt-busy' : 'tt-ok'; }
+				go = function() {
+					if (isCur) return;
+					uci.set(CONF, id, 'balance', on ? '0' : '1');
+					self.commit(false).then(function() { r.gridKey = null; self.paintProfiles(); });
+				};
+			}
 			r.grid.appendChild(E('div', {
 				'role': 'button',
 				'tabindex': (isCur || dis) ? '-1' : '0',
 				'aria-disabled': (isCur || dis) ? 'true' : 'false',
+				'aria-pressed': pol === 'balance' && !isCur ? (inBal(p) ? 'true' : 'false') : null,
 				'aria-current': isCur ? 'true' : null,
 				'keydown': function(ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } },
-				'class': 'tt-tile' + (isCur ? ' cur' : '') + (isSw ? ' sw' : '') + (dis ? ' dis' : ''),
+				'class': 'tt-tile' + (isCur ? ' cur' : '') + (isSw ? ' sw' : '') + (dis ? ' dis' : '') + (pol === 'balance' && !isCur && inBal(p) ? ' bal' : ''),
 				'title': failAt ? 'The server refused the login (account locked, expired or wrong password). Cleared after a successful login.' : (t ? (t.error || ('TCP ping ' + (t.target || ''))) : null),
 				'click': go
 			}, [
 				E('span', { 'class': 'tt-tt' }, [ E('span', { 'class': 'tt-radio' }), E('strong', {}, p.name || id), E('span', { 'class': bcls }, badge) ]),
 				E('span', { 'class': 'tt-td' }, niceLabel(p)),
-				E('span', { 'class': 'tt-td tt-mono' }, where),
+				E('span', { 'class': 'tt-td tt-mono' }, where + (p.wan ? ' · via ' + p.wan : '') + (pol === 'balance' && (+p.balance_weight || 1) > 1 ? ' · weight ' + p.balance_weight : '')),
 				E('span', { 'class': 'tt-tf' }, [ E('span', { 'class': 'tt-tg ' + tcls }, tag), ex ? E('span', { 'class': ex.cls }, ex.text) : '' ])
 			]));
 		});
@@ -1207,7 +1339,7 @@ return view.extend({
 			rows.push(row(L.payload ? 'Bug host / SNI' : 'SNI', bind('bug', { 'placeholder': 'bug.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' }), L.payload ? 'Used as TLS SNI and for [bug] in the payload.' : 'Server name sent in the TLS handshake.'));
 			rows.push(row('Allow insecure', flag('insecure'), 'Do not verify the TLS certificate (needed for most bug hosts / SNI tricks).'));
 		} else if (L.payload) {
-			rows.push(row('Bug host', bind('bug', { 'placeholder': 'bug.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' }), 'Used for [bug] in the payload.'));
+			rows.push(row('Bug host', bind('bug', { 'placeholder': 'bug.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' }), 'Used for [bug] in the payload. [rotate=a;b] / [random=a;b] also work.'));
 		}
 
 		if (L.payload) {
@@ -1224,7 +1356,7 @@ return view.extend({
 					if (TEMPLATES[v]) { d.payload = TEMPLATES[v]; }
 					self.paintEditor();
 				}) ]),
-				'Empty = default WebSocket template. Tags: [bug] [host] [port] [host_port] [ua] [crlf] [cr] [lf] [split] [delay_split] [instant_split]'));
+				'Empty = default WebSocket template. Common tags: [bug] [host] [port] [host_port] [ua] [crlf] [split]. Full list in the guide.'));
 			if (/\[split\]/.test(payloadText))
 				rows.push(row('[split] delay (ms)', bind('split_delay', { 'inputmode': 'numeric', 'placeholder': '1000' })));
 		}
@@ -1243,6 +1375,10 @@ return view.extend({
 
 		}
 
+		rows.push(row('Go out through', select(d.wan || '', wanOptions(d.wan), function(v) { d.wan = v; }),
+			'Modem this account uses. One modem: Auto.'));
+		rows.push(row('Balance weight', select(d.balance_weight || '1', [ [ '1', '1 · normal' ], [ '2', '2' ], [ '3', '3' ], [ '4', '4' ], [ '5', '5 · most' ] ], function(v) { d.balance_weight = v === '1' ? '' : v; }),
+			'Balance only. Higher = more connections.'));
 		rows.push(this.expiryRow(d));
 		rows.push(row('Show on Dashboard', checkbox(d.dashboard !== '0', function(v) { d.dashboard = v ? '' : '0'; }),
 			'Only accounts on the Dashboard are used by Fallback and Auto. Turn it off to keep this one as a spare; Save & connect here still uses it.'));
@@ -1567,7 +1703,7 @@ return view.extend({
 		var self = this;
 		var SUBS = [
 			[ 'general', 'General', 'Start, reconnect, reminders' ],
-			[ 'changeip', 'Change IP', 'Modem or phone airplane mode' ],
+			[ 'changeip', 'Change IP', 'Modems, IP ranges' ],
 			[ 'network', 'Network', 'TUN, SOCKS, DNS, bypass' ],
 			[ 'telegram', 'Telegram', 'Bot, alerts, remote control' ],
 			[ 'look', 'Appearance', 'Banner' ],
@@ -1581,7 +1717,7 @@ return view.extend({
 			nav.innerHTML = '';
 			SUBS.forEach(function(x) {
 				nav.appendChild(E('button', { 'type': 'button', 'role': 'tab', 'aria-selected': x[0] === self.sub ? 'true' : 'false', 'class': 'tt-subtab' + (x[0] === self.sub ? ' on' : ''),
-					'click': function() { self.sub = x[0]; paint(); } }, [ E('strong', {}, x[1]), E('span', { 'class': 'tt-ss' }, x[2]) ]));
+					'click': function() { self.sub = x[0]; self.ipEdit = null; paint(); } }, [ E('strong', {}, x[1]), E('span', { 'class': 'tt-ss' }, x[2]) ]));
 			});
 			body.innerHTML = '';
 			self.settingsBody(self.sub).forEach(function(k) { if (k) body.appendChild(k); });
@@ -1631,23 +1767,50 @@ return view.extend({
 			if (cur === 'default') cur = 'tomato';
 			var grid = E('div', { 'class': 'tt-bgrid', 'role': 'radiogroup', 'aria-label': 'Banner' });
 			var prev = E('div');
+			var own = null;
+			var probe = function() {
+				var im = new Image();
+				im.onload = function() { own = im.src; paintB(); };
+				im.onerror = function() { own = null; if (cur === 'custom') { cur = 'tomato'; self.set('banner', cur); } paintB(); };
+				im.src = '/luci-static/tomato-tunnel/banner.img?' + Date.now();
+			};
+			var upload = function() { return self.uploadBanner().then(function() { cur = self.get('banner', cur); probe(); }); };
 			var paintB = function() {
 				grid.innerHTML = '';
 				BANNERS.map(function(b) { return [ b[0], b[1], raw(b[2]) ]; }).concat([
-					[ 'custom', 'Your own image', E('div', { 'class': 'tt-bph' }, 'Upload…') ],
+					[ 'custom', 'Your own image', own ? E('img', { 'src': own, 'alt': '' }) : E('div', { 'class': 'tt-bph' }, 'Upload…') ],
 					[ 'none', 'No banner', E('div', { 'class': 'tt-bph' }, '—') ]
 				]).forEach(function(b) {
-					grid.appendChild(E('button', { 'type': 'button', 'role': 'radio', 'aria-checked': b[0] === cur ? 'true' : 'false', 'class': 'tt-bopt' + (b[0] === cur ? ' on' : ''),
-						'click': function() {
-							if (b[0] === 'custom') { return self.uploadBanner().then(function() { cur = self.get('banner', cur); paintB(); }); }
+					var kids = [ E('div', { 'class': 'tt-bthumb' }, b[2]), E('span', {}, [ b[0] === cur ? '● ' : '', b[1], b[0] === 'tomato' ? ' (default)' : '' ]) ];
+					var opt = E('div', { 'role': 'radio', 'tabindex': '0', 'aria-checked': b[0] === cur ? 'true' : 'false', 'class': 'tt-bopt' + (b[0] === cur ? ' on' : ''),
+						'click': function(ev) {
+							if (ev.target.closest('.tt-bown')) return;
+							if (b[0] === 'custom' && !own) return upload();
 							cur = b[0]; self.set('banner', cur); paintB();
-						} }, [ E('div', { 'class': 'tt-bthumb' }, b[2]), E('span', {}, [ b[0] === cur ? '● ' : '', b[1], b[0] === 'tomato' ? ' (default)' : '' ]) ]));
+						},
+						'keydown': function(ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.currentTarget.click(); } } }, kids);
+					if (b[0] === 'custom' && own)
+						opt.appendChild(E('div', { 'class': 'tt-bown' }, [
+							button('Change…', 'neutral', function() { upload(); }),
+							button('Remove', 'remove', function() {
+								ctl([ 'banner-clear' ]).then(function() {
+									own = null;
+									if (cur === 'custom') { cur = 'tomato'; self.set('banner', cur); }
+									return self.commit('Banner removed.');
+								}).then(paintB);
+							})
+						]));
+					grid.appendChild(opt);
 				});
 				prev.innerHTML = '';
 				var bb = self.renderBanner();
-				if (bb) prev.appendChild(bb);
+				bb.querySelector('h2').removeAttribute('name');
+				prev.appendChild(bb);
+				self.bannerEl.innerHTML = '';
+				self.bannerEl.appendChild(self.renderBanner());
 			};
 			paintB();
+			probe();
 			return [ section('Appearance', [
 				E('div', { 'class': 'cbi-value-description', 'style': 'margin:0 0 .8em' }, 'Banner at the top of the Dashboard. Your own image: JPG, PNG or WebP, about 1200×200, max 500 KB.'),
 				grid,
@@ -1684,7 +1847,8 @@ return view.extend({
 		}
 		return [ section('General', [
 			row('Start on boot', flag('autostart', '0'), 'Connect automatically when the router starts.'),
-			row('Profile selection', sel('policy', self.policy(), [ [ 'manual', 'Manual · stay on the chosen profile' ], [ 'fallback', 'Fallback · next profile when one fails' ], [ 'auto', 'Auto · move to the fastest profile' ] ]), 'Also on the Dashboard.'),
+			row('Profile selection', sel('policy', self.policy(), [ [ 'manual', 'Manual · stay on the chosen profile' ], [ 'fallback', 'Fallback · next profile when one fails' ], [ 'auto', 'Auto · move to the fastest profile' ], [ 'balance', 'Balance · several accounts at once, speed added up' ] ]), 'Also on the Dashboard.'),
+			row('Balance: same account per site', flag('balance_sticky', '0'), 'On: one site stays on one account (banks, games), but no added speed for it.'),
 			row('Warn before expiry', sel('expiry_warn', '3', [ [ '1', '1 day' ], [ '3', '3 days' ], [ '7', '7 days' ] ]), 'Expired profiles are skipped by Auto and Fallback.'),
 			row('Connection check URL', txt('check_url', 'http://cp.cloudflare.com/generate_204', { 'spellcheck': 'false' })),
 			row('Check every (seconds)', txt('check_interval', '5', { 'inputmode': 'numeric' })),
@@ -1790,84 +1954,220 @@ return view.extend({
 		return [ box ];
 	},
 
+	modemRef: function(sid) {
+		var self = this, main = sid === 'main';
+		var key = function(o) { return main && o === 'name' ? 'ip_name' : o; };
+		return {
+			sid: sid, main: main,
+			get: function(o, d) {
+				var v = uci.get(CONF, sid, key(o));
+				if (main && o === 'ip_method' && (v == null || v === '') && self.get('restart_modem', '0') === '1') v = 'iface';
+				return (v == null || v === '') ? d : v;
+			},
+			set: function(o, v) { uci.set(CONF, sid, key(o), v); },
+			name: function() { return this.get('name', main ? 'Modem 1' : sid); }
+		};
+	},
+
+	modems: function() {
+		var self = this, out = [];
+		var m = this.modemRef('main');
+		if (m.get('ip_method', 'none') !== 'none') out.push(m);
+		(uci.sections(CONF, 'modem') || []).forEach(function(s) {
+			var x = self.modemRef(s['.name']);
+			if (x.get('ip_method', 'none') !== 'none') out.push(x);
+		});
+		return out;
+	},
+
 	renderChangeIP: function() {
 		var self = this, box = E('div');
 		var paint = function() {
 			box.innerHTML = '';
+			if (self.ipEdit) { box.appendChild(self.renderModemEdit(self.modemRef(self.ipEdit), paint)); return; }
+			var ms = self.modems(), st = self.st || {};
+			var live = {};
+			(st.modems || []).forEach(function(x) { live[x.id] = x; });
+			var add = button('+ Add modem', 'add', function() {
+				var main = self.modemRef('main');
+				if (main.get('ip_method', 'none') === 'none') {
+					main.set('ip_method', 'iface');
+					self.ipEdit = 'main';
+				} else {
+					var sid = 'modem_' + Date.now().toString(36);
+					uci.add(CONF, 'modem', sid);
+					uci.set(CONF, sid, 'name', 'Modem ' + (ms.length + 1));
+					uci.set(CONF, sid, 'ip_method', 'iface');
+					self.ipEdit = sid;
+				}
+				paint();
+			});
+			var list;
+			if (!ms.length) {
+				list = E('div', { 'class': 'tt-mempty' }, [ E('p', {}, 'No modem yet.') ]);
+			} else {
+				list = E('div', { 'class': 'tt-plist tt-mlist' }, ms.map(function(m) {
+					var x = live[m.sid] || {}, pre = self.rangeList(m.get('ip_prefix', ''));
+					var ip = x.ip ? x.ip : '—';
+					return E('div', { 'class': 'tt-pi tt-mi' }, [
+						E('div', { 'class': 'tt-mn' }, [
+							E('strong', {}, m.name()),
+							E('span', { 'class': 'tt-ss' }, METHOD_NAMES[m.get('ip_method', 'none')] + (m.get('ip_iface', '') ? ' · ' + m.get('ip_iface', '') : '')),
+							x.tunnel ? E('span', { 'class': 'tt-mtag' }, 'Tunnel uses this') : ''
+						]),
+						E('div', { 'class': 'tt-mip' }, [
+							E('span', { 'class': 'tt-mono' }, ip),
+							E('span', { 'class': 'tt-ss' + (x.changing ? ' tt-warnc' : '') }, x.changing ? 'changing…' : (x.msg || ''))
+						]),
+						E('div', { 'class': 'tt-mr' }, pre.length ? pre.map(function(p) { return E('span', { 'class': 'tt-chip tt-mono' }, p.to ? p.from + ' – ' + p.to : p.from); }) : E('span', { 'class': 'tt-ss' }, 'Any new IP')),
+						E('div', { 'class': 'tt-pb' }, [
+							button(x.changing ? 'Changing…' : 'Change IP', 'action', function(ev) { self.changeIP(ev.currentTarget, m.sid, m.name()); }),
+							button('Edit', 'edit', function() { self.ipEdit = m.sid; paint(); }),
+							button('Delete', 'remove', function() {
+								if (!confirm('Delete ' + m.name() + '?')) return;
+								if (m.main) m.set('ip_method', 'none'), self.set('restart_modem', '0');
+								else uci.remove(CONF, m.sid);
+								self.commit('Modem deleted.').then(paint);
+							})
+						])
+					]);
+				}));
+			}
 			var g = function(o, d) { return self.get(o, d); };
-			var method = g('ip_method', g('restart_modem', '0') === '1' ? 'iface' : 'none');
-			var txt = function(o, d, attrs) { return textInput(g(o, d), function(v) { self.set(o, v.trim()); }, attrs); };
 			var flag = function(o, d) { return checkbox(g(o, d) === '1', function(v) { self.set(o, v ? '1' : '0'); }); };
-			var M = [ [ 'none', 'Off' ], [ 'iface', 'Restart interface' ], [ 'at', 'Airplane mode (AT command)' ], [ 'mm', 'ModemManager' ], [ 'hilink', 'HiLink / Orbit modem' ], [ 'adb', 'Android phone (ADB)' ] ];
+			var rows = [
+				row('After failed connects', flag('ip_after_fails', g('restart_modem', '0') === '1' ? '1' : '0'), 'When the tunnel fails to connect several times.'),
+				row('Failed connects', textInput(g('ip_after_n', '3'), function(v) { self.set('ip_after_n', v.trim()); }, { 'inputmode': 'numeric' }))
+			];
+			if (ms.length > 1) {
+				var opts = [ [ 'auto', 'Auto: the one the tunnel goes out on' ], [ 'all', 'All modems, one after another' ] ].concat(ms.map(function(m) { return [ m.sid, m.name() ]; }));
+				rows.push(row('Which modem', select(g('ip_target', 'auto'), opts, function(v) { self.set('ip_target', v); }), 'Auto = the modem the tunnel uses.'));
+			}
+			rows.push(row('Buttons on the Dashboard', flag('ip_button', '1'), ms.length > 1 ? 'One button per modem.' : null));
+			box.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('div', { 'class': 'tt-sechead' }, [ E('h3', {}, 'Modems'), add ]),
+				E('div', { 'class': 'cbi-section-descr' }, 'Each modem has its own method, interface and IP ranges.'),
+				E('div', { 'class': 'cbi-section-node' }, [ list ])
+			]));
+			if (ms.length) box.appendChild(section('When to change automatically', rows));
+		};
+		uci.load('network').then(paint, paint);
+		return box;
+	},
+
+	rangeList: function(s) {
+		return (s || '').replace(/\s*-\s*/g, '-').split(/[,;\s]+/).filter(function(x) { return x; }).map(function(x) {
+			var i = x.indexOf('-');
+			return i > 0 ? { from: x.slice(0, i), to: x.slice(i + 1) } : { from: x, to: '' };
+		});
+	},
+
+	renderModemEdit: function(m, back) {
+		var self = this, box = E('div');
+		var det = self.ipDetect || {};
+		var paint = function() {
+			box.innerHTML = '';
+			var method = m.get('ip_method', 'iface');
+			var txt = function(o, d, attrs) { return textInput(m.get(o, d), function(v) { m.set(o, v.trim()); }, attrs); };
+			var M = [ [ 'iface', 'Restart interface' ], [ 'at', 'Airplane mode (AT command)' ], [ 'mm', 'ModemManager' ], [ 'hilink', 'HiLink / Orbit modem' ], [ 'adb', 'Android phone (ADB)' ] ];
 			var HINT = {
-				none: 'No automatic IP change.',
 				iface: 'ifdown/ifup the WAN interface. Works with most modems in RNDIS/QMI mode.',
 				at: 'Sends AT commands to the modem serial port: radio off, wait, radio on.',
 				mm: 'Uses mmcli to disable and enable the modem. Needs modemmanager.',
 				hilink: 'Turns mobile data off and on through the web API of the modem.',
 				adb: 'Airplane mode on the tethered phone (USB debugging on). Needs the adb package.'
 			};
-			var rows = [ row('Method', select(method, M, function(v) {
-				self.set('ip_method', v);
-				if (self.get('restart_modem', '0') === '1') { self.set('restart_modem', '0'); if (v !== 'none') self.set('ip_after_fails', '1'); }
+			var rows = [ row('Name', txt('name', m.name())), row('Method', select(method, M, function(v) {
+				m.set('ip_method', v);
+				if (m.main && self.get('restart_modem', '0') === '1') { self.set('restart_modem', '0'); self.set('ip_after_fails', '1'); }
 				paint();
 			}), HINT[method]) ];
 			var ifOpts = [ [ '', '—' ] ];
-			(uci.sections('network', 'interface') || []).forEach(function(i) { if (i['.name'] !== 'loopback' && i['.name'] !== 'lan') ifOpts.push([ i['.name'], i['.name'] + (i.device ? ' (' + i.device + ')' : '') ]); });
-			var curIf = g('ip_iface', g('modem_iface', 'wwan'));
+			(uci.sections('network', 'interface') || []).forEach(function(i) { if (i['.name'] !== 'loopback' && i['.name'] !== 'lan') ifOpts.push([ i['.name'], ifLabel(i) ]); });
+			var defIf = (method === 'hilink' || method === 'adb') ? '' : 'wwan';
+			var curIf = m.get('ip_iface', m.main ? self.get('modem_iface', defIf) : defIf);
 			if (!ifOpts.some(function(o) { return o[0] === curIf; })) ifOpts.push([ curIf, curIf ]);
-			var ifSel = select(curIf, ifOpts, function(v) { self.set('ip_iface', v); });
-			var det = self.ipDetect || {};
+			var ifSel = select(curIf, ifOpts, function(v) { m.set('ip_iface', v); });
 			if (method === 'iface') rows.push(row('Interface', ifSel, 'Name in Network › Interfaces.'));
 			if (method === 'at') {
 				var ports = (det.at || []).map(function(p) { return [ p.dev, p.dev + (p.ok ? ' · OK' + (p.model ? ' (' + p.model + ')' : '') : ' · no answer') ]; });
-				var curP = g('at_port', '/dev/ttyUSB2');
+				var curP = m.get('at_port', '/dev/ttyUSB2');
 				if (!ports.some(function(o) { return o[0] === curP; })) ports.unshift([ curP, curP ]);
-				rows.push(row('AT port', E('div', { 'class': 'tt-inline' }, [ select(curP, ports, function(v) { self.set('at_port', v); }),
-					button('Detect', 'neutral', function(ev) { self.detectIP(ev.currentTarget, paint); }) ]), det.at && !det.at.length ? 'No serial ports found (/dev/ttyUSB*, /dev/ttyACM*).' : null));
+				rows.push(row('AT port', E('div', { 'class': 'tt-inline' }, [ select(curP, ports, function(v) { m.set('at_port', v); }),
+					button('Detect', 'neutral', function(ev) { self.detectIP(ev.currentTarget, function() { det = self.ipDetect || {}; paint(); }); }) ]), det.at && !det.at.length ? 'No serial ports found (/dev/ttyUSB*, /dev/ttyACM*).' : null));
 				rows.push(row('Radio off command', txt('at_off', 'AT+CFUN=4', { 'class': 'cbi-input-text tt-mono' })));
 				rows.push(row('Radio on command', txt('at_on', 'AT+CFUN=1', { 'class': 'cbi-input-text tt-mono' })));
-				rows.push(row('Bring up interface after', ifSel, 'Optional: ifup this interface once the radio is back (QMI/MBIM modems).'));
+				rows.push(row('Interface', ifSel, 'Brought up again after the radio is back.'));
 			}
 			if (method === 'mm') {
-				var mms = (det.mm || []).map(function(m) { return [ m.index, m.index + ' · ' + m.name ]; });
-				var curM = g('mm_modem', '0');
+				var mms = (det.mm || []).map(function(x) { return [ x.index, x.index + ' · ' + x.name ]; });
+				var curM = m.get('mm_modem', '0');
 				if (!mms.some(function(o) { return o[0] === curM; })) mms.unshift([ curM, curM ]);
-				rows.push(row('Modem', E('div', { 'class': 'tt-inline' }, [ select(curM, mms, function(v) { self.set('mm_modem', v); }),
-					button('Detect', 'neutral', function(ev) { self.detectIP(ev.currentTarget, paint); }) ]), det.mm_error || null));
-				rows.push(row('Bring up interface after', ifSel));
+				rows.push(row('Modem', E('div', { 'class': 'tt-inline' }, [ select(curM, mms, function(v) { m.set('mm_modem', v); }),
+					button('Detect', 'neutral', function(ev) { self.detectIP(ev.currentTarget, function() { det = self.ipDetect || {}; paint(); }); }) ]), det.mm_error || null));
+				rows.push(row('Interface', ifSel, 'Brought up again after the modem is enabled.'));
 			}
 			if (method === 'hilink') {
 				rows.push(row('Modem address', txt('hilink_addr', '192.168.8.1')));
 				rows.push(row('Modem username', txt('hilink_user', 'admin')));
-				var pw = textInput(g('hilink_pass', ''), function(v) { self.set('hilink_pass', v); }, { 'type': 'password', 'autocomplete': 'new-password' });
-				rows.push(row('Modem password', pw, 'Huawei HiLink and Telkomsel Orbit. Leave empty if the modem page has no login.'));
+				rows.push(row('Modem password', textInput(m.get('hilink_pass', ''), function(v) { m.set('hilink_pass', v); }, { 'type': 'password', 'autocomplete': 'new-password' }), 'Huawei HiLink and Telkomsel Orbit. Leave empty if the modem page has no login.'));
+				rows.push(row('Interface', ifSel, 'Router interface of this modem.'));
 			}
 			if (method === 'adb') {
 				var ads = (det.adb || []).map(function(a) { return [ a.serial, a.serial + ' · ' + (a.model || '') + ' (' + a.state + ')' ]; });
-				var curA = g('adb_serial', '');
+				var curA = m.get('adb_serial', '');
 				ads.unshift([ '', 'First phone found' ]);
 				if (!ads.some(function(o) { return o[0] === curA; })) ads.push([ curA, curA ]);
-				rows.push(row('Phone', E('div', { 'class': 'tt-inline' }, [ select(curA, ads, function(v) { self.set('adb_serial', v); }),
-					button('Detect', 'neutral', function(ev) { self.detectIP(ev.currentTarget, paint); }) ]), det.adb_error || null));
+				rows.push(row('Phone', E('div', { 'class': 'tt-inline' }, [ select(curA, ads, function(v) { m.set('adb_serial', v); }),
+					button('Detect', 'neutral', function(ev) { self.detectIP(ev.currentTarget, function() { det = self.ipDetect || {}; paint(); }); }) ]), det.adb_error || null));
+				rows.push(row('Interface', ifSel, 'Router interface of the phone.'));
 			}
-			if (method !== 'none') {
-				rows.push(row('Wait in between (seconds)', txt('ip_wait', '5', { 'inputmode': 'numeric' }), 'Off time, then up to 60 s for the new IP.'));
-				rows.push(row('After failed connects', flag('ip_after_fails', g('restart_modem', '0') === '1' ? '1' : '0'), 'Change the IP when the tunnel cannot connect several times in a row.'));
-				rows.push(row('Failed connects', txt('ip_after_n', '3', { 'inputmode': 'numeric' })));
-				rows.push(row('Every (hours)', txt('ip_every_h', '0', { 'inputmode': 'numeric' }), '0 = off. Changes the IP on a schedule while connected.'));
-				rows.push(row('Button on the Dashboard', flag('ip_button', '1')));
-				rows.push(row('Keep trying until IP starts with', txt('ip_prefix', '', { 'class': 'cbi-input-text tt-mono', 'placeholder': 'e.g. 114.12., 114.13. (optional)' }), 'Empty = any new IP is fine. Checks the WAN IP, not the tunnel IP.'));
-				rows.push(row('Max tries', txt('ip_max_tries', '5', { 'inputmode': 'numeric' })));
-				rows.push(E('div', { 'class': 'tt-actions' }, [ button('Save & Change IP now', 'action', function(ev) {
+			rows.push(row('Wait in between (seconds)', txt('ip_wait', '5', { 'inputmode': 'numeric' }), 'Off time, then up to 60 s for the new IP.'));
+			rows.push(row('Every (hours)', txt('ip_every_h', '0', { 'inputmode': 'numeric' }), '0 = off.'));
+			rows.push(row('Max tries', txt('ip_max_tries', '5', { 'inputmode': 'numeric' }), 'Tries to get an IP in the ranges below.'));
+
+			box.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('div', { 'class': 'tt-sechead' }, [ E('h3', {}, 'Edit modem: ' + m.name()), E('a', { 'href': '#settings', 'click': function(ev) { ev.preventDefault(); self.ipEdit = null; back(); } }, '← Modems') ]),
+				E('div', { 'class': 'cbi-section-node' }, rows)
+			]));
+			box.appendChild(self.renderRanges(m));
+			box.appendChild(E('div', { 'class': 'tt-actions' }, [
+				button('Save & Change IP now', 'action', function(ev) {
 					var b = ev.currentTarget;
-					self.commit(false).then(function() { return self.changeIP(b); }).then(function() { b.disabled = false; });
-				}) ]));
-			}
-			box.appendChild(section('Change IP', rows, 'Gets a new IP from the operator. The tunnel waits, then reconnects on the new IP. Progress is in the Log.'));
+					self.commit(false).then(function() { return self.changeIP(b, m.sid, m.name()); }).then(function() { b.disabled = false; });
+				}),
+				button('Back to modems', 'neutral', function() { self.ipEdit = null; back(); })
+			]));
 		};
-		uci.load('network').then(paint, paint);
+		paint();
 		return box;
+	},
+
+	renderRanges: function(m) {
+		var self = this, rows = this.rangeList(m.get('ip_prefix', '')), node = E('div', { 'class': 'tt-ranges' });
+		var save = function() {
+			m.set('ip_prefix', rows.map(function(r) { var f = r.from.trim(), t = r.to.trim(); return f && t ? f + '-' + t : f; }).filter(function(x) { return x; }).join(', '));
+		};
+		var paint = function() {
+			node.innerHTML = '';
+			node.appendChild(E('div', { 'class': 'tt-rg tt-rgh' }, [ E('span', {}, 'From'), E('span', {}), E('span', {}, 'To'), E('span', {}, 'Means'), E('span', {}) ]));
+			rows.forEach(function(r, i) {
+				var means = E('span', { 'class': 'tt-ss tt-mono' });
+				var upd = function() { var x = rangeMeans(r.from.trim(), r.to.trim()); means.textContent = x[1]; means.className = 'tt-ss ' + (x[0] ? 'tt-mono' : 'tt-errc'); };
+				upd();
+				node.appendChild(E('div', { 'class': 'tt-rg' }, [
+					textInput(r.from, function(v) { r.from = v; upd(); save(); }, { 'class': 'cbi-input-text tt-mono', 'aria-label': 'Range ' + (i + 1) + ' from', 'placeholder': '10.0' }),
+					E('span', { 'class': 'tt-muted' }, '–'),
+					textInput(r.to, function(v) { r.to = v; upd(); save(); }, { 'class': 'cbi-input-text tt-mono', 'aria-label': 'Range ' + (i + 1) + ' to', 'placeholder': '10.19' }),
+					means,
+					button('×', 'remove', function() { rows.splice(i, 1); save(); paint(); })
+				]));
+			});
+			if (!rows.length) node.appendChild(E('p', { 'class': 'tt-ss' }, 'No ranges: any new IP is fine.'));
+			node.appendChild(E('div', { 'class': 'tt-actions' }, button('+ Add range', 'add', function() { rows.push({ from: '', to: '' }); paint(); })));
+		};
+		paint();
+		return section('Keep trying until the IP is in', [ node ], 'Short form works: 10.0 to 10.19. "From" alone takes a prefix (114.12.) or CIDR. Empty = any IP.');
 	},
 
 	detectIP: function(btn, after) {
@@ -1883,6 +2183,7 @@ return view.extend({
 		}).then(function(out) {
 			if ((out || '').trim() !== 'ok') throw new Error((out || 'upload failed').trim());
 			self.set('banner', 'custom');
+			self.bannerStamp = Date.now();
 			return self.commit('Banner updated.');
 		}).catch(function(e) {
 			if (e && e.message) ui.addNotification(null, E('p', 'Banner: ' + e.message), 'warning');
@@ -1937,6 +2238,7 @@ return view.extend({
 					E('div', { 'class': 'tt-authb' }, [
 						E('a', { 'class': 'btn cbi-button cbi-button-action', 'href': TG, 'target': '_blank', 'rel': 'noopener' }, 'Telegram'),
 						E('a', { 'class': 'btn cbi-button cbi-button-neutral', 'href': 'https://t.me/tfnuklir', 'target': '_blank', 'rel': 'noopener' }, 'Group @tfnuklir'),
+						E('a', { 'class': 'btn cbi-button cbi-button-action', 'href': 'https://github.com/' + (g('update_repo', 'dudul19/tomato-tunnel')) + '/blob/main/docs/GUIDE.md', 'target': '_blank', 'rel': 'noopener' }, 'Guide'),
 						E('a', { 'class': 'btn cbi-button cbi-button-neutral', 'href': 'https://github.com/' + (g('update_repo', 'dudul19/tomato-tunnel')), 'target': '_blank', 'rel': 'noopener' }, 'Source on GitHub')
 					])
 				]),

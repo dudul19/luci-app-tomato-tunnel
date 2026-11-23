@@ -130,6 +130,9 @@ func (i *Info) Replies() []string {
 
 func (d *Dialer) Dial(ctx context.Context) (net.Conn, *Info, error) {
 	p := d.P
+	key := p.ID + "\x00" + p.Name
+	p.Host, p.Bug, p.Proxy = PickValue(p.Host, key+"h"), PickValue(p.Bug, key+"b"), PickValue(p.Proxy, key+"p")
+	serverIP := ""
 	var c net.Conn
 	info := &Info{}
 
@@ -161,6 +164,9 @@ func (d *Dialer) Dial(ctx context.Context) (net.Conn, *Info, error) {
 		ip, err := d.resolve(ctx, host)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolve %s: %v", host, err)
+		}
+		if p.Proxy == "" {
+			serverIP = ip
 		}
 		info.Target = net.JoinHostPort(host, strconv.Itoa(port))
 		d.Log.Infof("tcp", "Connecting to %s", info.Target)
@@ -208,7 +214,13 @@ func (d *Dialer) Dial(ctx context.Context) (net.Conn, *Info, error) {
 			payload = DefaultWS
 		}
 	}
-	segs := Build(payload, PayloadVars{Host: p.Host, Port: p.Port, Bug: p.Bug, UA: p.UA}, time.Duration(p.SplitDelay)*time.Millisecond)
+	if serverIP == "" && strings.Contains(strings.ToLower(payload), "[ip") {
+		if ip, err := d.resolve(ctx, p.Host); err == nil {
+			serverIP = ip
+		}
+	}
+	segs := Build(payload, PayloadVars{Host: p.Host, Port: p.Port, Bug: p.Bug, UA: p.UA, IP: serverIP, Proxy: p.Proxy, Key: key},
+		time.Duration(p.SplitDelay)*time.Millisecond)
 	for i, s := range segs {
 		if s.Delay > 0 {
 			select {

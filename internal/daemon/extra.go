@@ -3,6 +3,9 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dudul19/tomato-tunnel/internal/changeip"
@@ -76,6 +79,9 @@ func (d *Daemon) reloadSettings() {
 	}
 	m := &d.cfg.Main
 	m.IP, m.ExpiryWarn, m.UsageResetDay, m.UsageQuotaGB = c.Main.IP, c.Main.ExpiryWarn, c.Main.UsageResetDay, c.Main.UsageQuotaGB
+	m.IPTarget, m.Modems = c.Main.IPTarget, c.Main.Modems
+	m.BalanceSticky = c.Main.BalanceSticky
+	go d.modemStatus()
 	m.UpdateCheck, m.UpdateRepo, m.UpdateChannel = c.Main.UpdateCheck, c.Main.UpdateRepo, c.Main.UpdateChannel
 	if len(c.Profiles) > 0 {
 		d.cfg.Profiles = c.Profiles
@@ -116,35 +122,183 @@ func daysText(x time.Duration) string {
 	return fmt.Sprintf("%d days", n)
 }
 
-func (d *Daemon) changeIP(ctx context.Context, why string) changeip.Result {
+// changeIP changes the IP of one modem, of all of them, or (target "" or
+// "auto") of the one the tunnel goes out on. It reports whether that modem
+// was among them, so the caller knows the tunnel needs a reconnect.
+func (d *Daemon) changeIP(ctx context.Context, why, target string) (changeip.Result, bool) {
 	if !d.ipBusy.CompareAndSwap(false, true) {
-		return changeip.Result{Error: "already changing IP"}
+		return changeip.Result{Error: "already changing IP"}, false
 	}
 	defer d.ipBusy.Store(false)
 	c := d.cfg
 	if fresh, err := config.Load(d.cfgPath); err == nil {
 		c = fresh
-		d.cfg.Main.IP = fresh.Main.IP
+		d.cfg.Main.IP, d.cfg.Main.IPTarget, d.cfg.Main.Modems = fresh.Main.IP, fresh.Main.IPTarget, fresh.Main.Modems
+	}
+	ms := c.Main.Modems
+	if len(ms) == 0 {
+		return changeip.Result{Error: "no Change IP method is set (Settings › Change IP)"}, false
+	}
+	if target == "" {
+		target = c.Main.IPTarget
+	}
+	tun := tunnelModem(ms, c.Main.WanIface)
+	var sel []config.ChangeIP
+	switch target {
+	case "all":
+		sel = ms
+	case "", "auto":
+		sel = []config.ChangeIP{tun}
+	default:
+		m, ok := c.Main.Modem(target)
+		if !ok {
+			return changeip.Result{Error: "unknown modem " + target}, false
+		}
+		sel = []config.ChangeIP{m}
 	}
 	if why != "" {
 		d.log.Warnf("changeip", "%s", why)
 	}
-	d.set(func(s *Status) { s.ChangingIP = true })
-	r := changeip.Run(ctx, c.Main.IP, c.Main.WanIface, d.log)
-	d.lastIPChange = time.Now()
+	var r changeip.Result
+	touched := false
+	for _, m := range sel {
+		if ctx.Err() != nil {
+			break
+		}
+		if m.ID == tun.ID {
+			touched = true
+		}
+		d.setModem(m.ID, func(x *ModemStatus) { x.Changing, x.Msg = true, "" })
+		d.set(func(s *Status) { s.ChangingIP = true })
+		x := changeip.Run(ctx, m, c.Main.WanIface, d.log)
+		d.lastIP[m.ID] = time.Now()
+		d.lastIPChange = time.Now()
+		d.setModem(m.ID, func(st *ModemStatus) {
+			st.Changing, st.Last = false, time.Now().Unix()
+			if x.OK {
+				st.Msg = "New IP " + x.New
+			} else {
+				st.Msg = x.Error
+			}
+		})
+		d.set(func(s *Status) {
+			s.ChangingIP = false
+			s.LastIPChange = time.Now().Unix()
+			s.IPChangeOld = x.Old
+			if x.OK {
+				s.IPChangeMsg = "New IP " + x.New
+			} else {
+				s.IPChangeMsg = x.Error
+			}
+			if len(ms) > 1 {
+				s.IPChangeModem = m.Name
+			} else {
+				s.IPChangeModem = ""
+			}
+		})
+		if r.ID == "" || !x.OK {
+			r = x
+		}
+	}
+	go d.modemStatus()
+	return r, touched
+}
+
+// ModemStatus is one modem on the Dashboard.
+type ModemStatus struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Method   string `json:"method"`
+	IP       string `json:"ip,omitempty"`
+	Tunnel   bool   `json:"tunnel,omitempty"`
+	Changing bool   `json:"changing,omitempty"`
+	Msg      string `json:"msg,omitempty"`
+	Last     int64  `json:"last,omitempty"`
+}
+
+func (d *Daemon) setModem(id string, f func(*ModemStatus)) {
 	d.set(func(s *Status) {
-		s.ChangingIP = false
-		s.LastIPChange = time.Now().Unix()
-		s.IPChangeOld = r.Old
-		if r.OK {
-			s.IPChangeMsg = "New IP " + r.New
-		} else {
-			s.IPChangeMsg = r.Error
+		for i := range s.Modems {
+			if s.Modems[i].ID == id {
+				f(&s.Modems[i])
+			}
 		}
 	})
-	return r
+}
+
+// modemStatus refreshes the modem list with each modem's interface address.
+func (d *Daemon) modemStatus() {
+	ms := d.cfg.Main.Modems
+	tun := config.ChangeIP{}
+	if len(ms) > 0 {
+		tun = tunnelModem(ms, d.cfg.Main.WanIface)
+	}
+	ips := make([]string, len(ms))
+	for i, m := range ms {
+		ips[i] = changeip.IfaceIP(m.Iface)
+	}
+	d.set(func(s *Status) {
+		old := map[string]ModemStatus{}
+		for _, x := range s.Modems {
+			old[x.ID] = x
+		}
+		s.Modems = s.Modems[:0]
+		for i, m := range ms {
+			x := old[m.ID]
+			x.ID, x.Name, x.Method, x.IP, x.Tunnel = m.ID, m.Name, m.Method, ips[i], len(ms) > 1 && m.ID == tun.ID
+			s.Modems = append(s.Modems, x)
+		}
+	})
+}
+
+// tunnelModem picks the modem the tunnel goes out on: the one on the WAN
+// device set in Network, else the one on the default route with the lowest
+// metric, else the first.
+func tunnelModem(ms []config.ChangeIP, wan string) config.ChangeIP {
+	if len(ms) == 1 {
+		return ms[0]
+	}
+	dev := wan
+	if dev == "" {
+		dev = defaultDev()
+	}
+	if dev != "" {
+		for _, m := range ms {
+			if m.Iface != "" && changeip.IfaceDevice(m.Iface) == dev {
+				return m
+			}
+		}
+	}
+	return ms[0]
+}
+
+func defaultDev() string {
+	out, err := exec.Command("ip", "-4", "route", "show", "default").Output()
+	if err != nil {
+		return ""
+	}
+	best, bestM := "", int(^uint(0)>>1)
+	for _, l := range strings.Split(string(out), "\n") {
+		f := strings.Fields(l)
+		dev, met := "", 0
+		for i := 0; i+1 < len(f); i++ {
+			switch f[i] {
+			case "dev":
+				dev = f[i+1]
+			case "metric":
+				met, _ = strconv.Atoi(f[i+1])
+			}
+		}
+		if dev == "" || dev == TunName || strings.HasPrefix(dev, "tun") {
+			continue
+		}
+		if met < bestM {
+			best, bestM = dev, met
+		}
+	}
+	return best
 }
 
 func (d *Daemon) ipEnabled() bool {
-	return d.cfg.Main.IP.Method != "" && d.cfg.Main.IP.Method != "none"
+	return len(d.cfg.Main.Modems) > 0
 }

@@ -99,3 +99,35 @@ config profile 'p3'
 		t.Fatalf("main %+v", c.Main.DirectDomains)
 	}
 }
+
+func TestModems(t *testing.T) {
+	ss, err := uci.Parse(strings.NewReader(`
+config main 'main'
+	option ip_method 'at'
+	option ip_name 'Telkomsel'
+	option ip_prefix '10.0 - 10.19, 10.130-10.159'
+	option ip_target 'auto'
+
+config modem 'xl'
+	option name 'XL Orbit'
+	option ip_method 'hilink'
+	option ip_every_h '6'
+
+config modem 'off'
+	option ip_method 'none'
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := FromSections(ss)
+	m := c.Main.Modems
+	if len(m) != 2 || m[0].ID != "main" || m[0].Name != "Telkomsel" || m[1].ID != "xl" || m[1].Name != "XL Orbit" {
+		t.Fatalf("modems %+v", m)
+	}
+	if len(m[0].Prefix) != 2 || m[0].Prefix[0] != "10.0-10.19" || m[1].Iface != "" || m[1].EveryH != 6 || m[1].Prefix != nil {
+		t.Fatalf("fields %+v", m)
+	}
+	if x, ok := c.Main.Modem("xl"); !ok || x.Method != "hilink" {
+		t.Fatal("lookup")
+	}
+}

@@ -85,7 +85,19 @@ func main() {
 			os.Exit(1)
 		}
 		log := logx.New(daemon.LogFile, 1000, true)
-		r := changeip.Run(context.Background(), cfg.Main.IP, cfg.Main.WanIface, log)
+		m := cfg.Main.IP
+		if len(cfg.Main.Modems) > 0 {
+			m = cfg.Main.Modems[0]
+		}
+		if len(os.Args) > 2 && os.Args[2] != "auto" && os.Args[2] != "all" {
+			x, ok := cfg.Main.Modem(os.Args[2])
+			if !ok {
+				fmt.Println("error: unknown modem", os.Args[2])
+				os.Exit(1)
+			}
+			m = x
+		}
+		r := changeip.Run(context.Background(), m, cfg.Main.WanIface, log)
 		b, _ := json.Marshal(r)
 		fmt.Println(string(b))
 		if !r.OK {
