@@ -24,9 +24,9 @@ feature, setting and payload tag is explained there.
 
 ## Preview
 
-![Dashboard](docs/screenshots/dashboard-v1.6.0.png)
+![Dashboard](docs/screenshots/dashboard-v1.6.0-dark.png)
 
-Dashboard of v1.6.0 on ImmortalWrt (Lo-fi Blue theme) with two accounts in Balance. Public IP, ISP and server domains are blurred.
+Dashboard of v1.6.0 on ImmortalWrt (Lo-fi Blue theme, dark mode) with two accounts in Balance. Public IP, ISP and server domains are blurred.
 
 ## Features
 
