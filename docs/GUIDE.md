@@ -2,7 +2,7 @@
 
 **English** · [Bahasa Indonesia](GUIDE.id.md)
 
-Every Tomato Tunnel feature up to **version 1.6.0**: what it does, where it is, and how to use it.
+Every Tomato Tunnel feature up to **version 1.7.0**: what it does, where it is, and how to use it.
 
 ## Contents
 
@@ -60,10 +60,10 @@ opkg print-architecture  # OpenWrt 23.05 and 24.10
 
    ```sh
    # OpenWrt 25.x and newer (apk)
-   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.6.0_aarch64_generic.apk
+   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.apk
 
    # OpenWrt 23.05 and 24.10 (opkg)
-   opkg install /tmp/luci-app-tomato-tunnel_1.6.0_aarch64_generic.ipk
+   opkg install /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.ipk
    ```
 
 3. Open LuCI and go to **Services › Tomato Tunnel**.
@@ -129,10 +129,10 @@ VLESS, VMess or Trojan over TCP, WebSocket, HTTPUpgrade, gRPC or XHTTP, with TLS
 
 ### Fields in every account type
 
-- **Go out through** *(new in 1.6.0)*: the modem or interface this account always uses. **Auto** follows the router's own route (mwan3 too). See [section 9](#9-balance-adding-up-several-modems).
+- **Go out through**: the modem or interface this account always uses. **Auto** follows the router's own route (mwan3 too). See [section 9](#9-balance-adding-up-several-modems).
   - **One modem:** just pick **Auto**, whatever the interface is called (`wan`, `wwan`, `eth1`, `usb0`, ...).
   - **More than one modem:** pick the interface by its name in Network › Interfaces. The list shows the name and the real device, such as `wan (wwan0)` or `hp (usb0)`. The name does not matter, as long as the interface is the one on that modem.
-- **Balance weight** *(new in 1.6.0)*: the share of connections in Balance mode, 1–5.
+- **Balance weight**: the share of connections in Balance mode, 1–5.
 - **Expires on**: the account's end date. You get a reminder before it ends, and expired accounts are skipped by Auto, Fallback and Balance.
 - **Show on Dashboard**: turn it off to keep the account as a spare. It is never used by Fallback, Auto or Balance and has no card on the Dashboard, but Save & connect still uses it; a plain **Save** is enough for the change.
 
@@ -172,11 +172,9 @@ Set in **Dashboard › Profiles** or **Settings › General › Profile selectio
 | **Manual** | Stays on the chosen profile. |
 | **Fallback** | Moves to the next profile after 3 failed reconnects. With *Fallback: go back to the chosen account* (on by default, 1.7.0) it goes back to the account you chose once a real login works again: checked every 5 minutes, at least 3 minutes after the move. |
 | **Auto** | Moves to a profile at least 20 ms faster (checked every 5 minutes). |
-| **Balance** *(1.6.0)* | Several accounts run at the same time and share the traffic. See the next section. |
+| **Balance** | Several accounts run at the same time and share the traffic. See the next section. |
 
 ## 9. Balance: adding up several modems
-
-*New in 1.6.0.*
 
 Balance runs several accounts **at the same time**, each through its own modem, and spreads the connections of the LAN devices over them. The speed of several modems adds up (1 + 1 ≈ 2).
 
@@ -243,7 +241,7 @@ To find out: run a multi-connection speed test in **Manual** mode with one accou
 | **HiLink / Orbit modem** | Turns mobile data off and on through the modem's web API (Huawei HiLink, Telkomsel Orbit). |
 | **Android phone (ADB)** | Airplane mode on the tethered phone (USB debugging on). Needs `adb`. |
 
-### Several modems *(1.6.0)*
+### Several modems
 
 - **+ Add modem** adds a modem. Each modem has its own name, method, interface, schedule and IP ranges. Your old settings become Modem 1.
 - **When to change automatically**:
@@ -253,7 +251,7 @@ To find out: run a multi-connection speed test in **Manual** mode with one accou
 - **Every (hours)** per modem: a scheduled change. `0` turns it off.
 - The tunnel only reconnects when the modem that changed IP is the one it uses.
 
-### IP ranges *(1.6.0)*
+### IP ranges
 
 With **Keep trying until the IP is in**, Change IP repeats until the IP is in one of the ranges (at most **Max tries** times). Accepted formats:
 
@@ -323,9 +321,9 @@ See [section 13](#13-telegram-bot).
 
 ### Appearance
 
-- The banner is the header of the Tomato Tunnel page on every tab, with the logo, the protocols, the version and the author *(1.6.0)*.
+- The banner is the header of the Tomato Tunnel page on every tab, with the logo, the protocols, the version and the author.
 - Six built-in banners (Tomato, Night Sky, Forest, Ocean, Minimal, Dusk City), **Your own image**, or **No banner**. No banner gives a plain header in the theme's card colour, without a picture.
-- Your own image: JPG, PNG or WebP, about 1200×200, at most 500 KB. Once uploaded, its card shows your image with **Change…** and **Remove** *(1.6.0)*.
+- Your own image: JPG, PNG or WebP, about 1200×200, at most 500 KB. Once uploaded, its card shows your image with **Change…** and **Remove**.
 
 ### About & update
 

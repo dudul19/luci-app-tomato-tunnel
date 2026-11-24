@@ -2,7 +2,7 @@
 
 [English](GUIDE.md) · **Bahasa Indonesia**
 
-Panduan lengkap semua fitur Tomato Tunnel sampai **versi 1.6.0**: apa fungsinya, di mana tempatnya, dan cara memakainya.
+Panduan lengkap semua fitur Tomato Tunnel sampai **versi 1.7.0**: apa fungsinya, di mana tempatnya, dan cara memakainya.
 
 Nama menu dan tombol ditulis dalam bahasa Inggris, sama seperti yang tampil di LuCI.
 
@@ -62,10 +62,10 @@ opkg print-architecture  # OpenWrt 23.05 dan 24.10
 
    ```sh
    # OpenWrt 25.x dan lebih baru (apk)
-   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.6.0_aarch64_generic.apk
+   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.apk
 
    # OpenWrt 23.05 dan 24.10 (opkg)
-   opkg install /tmp/luci-app-tomato-tunnel_1.6.0_aarch64_generic.ipk
+   opkg install /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.ipk
    ```
 
 3. Buka LuCI, lalu **Services › Tomato Tunnel**.
@@ -131,10 +131,10 @@ VLESS, VMess, atau Trojan lewat TCP, WebSocket, HTTPUpgrade, gRPC, atau XHTTP, d
 
 ### Kolom yang sama di semua jenis akun
 
-- **Go out through** *(baru di 1.6.0)*: modem atau interface yang selalu dipakai akun ini. **Auto** mengikuti route router (termasuk mwan3). Lihat [bagian 9](#9-balance-menggabungkan-speed-beberapa-modem).
+- **Go out through**: modem atau interface yang selalu dipakai akun ini. **Auto** mengikuti route router (termasuk mwan3). Lihat [bagian 9](#9-balance-menggabungkan-speed-beberapa-modem).
   - **Satu modem:** cukup pilih **Auto**, apa pun nama interface-nya (`wan`, `wwan`, `eth1`, `usb0`, dan lain-lain).
   - **Lebih dari satu modem:** pilih interface sesuai namanya di Network › Interfaces. Daftar menampilkan nama dan device aslinya, misalnya `wan (wwan0)` atau `hp (usb0)`. Namanya bebas, yang penting interface itu memang terhubung ke modem yang dimaksud.
-- **Balance weight** *(baru di 1.6.0)*: jatah koneksi di mode Balance, 1–5.
+- **Balance weight**: jatah koneksi di mode Balance, 1–5.
 - **Expires on**: tanggal habis akun. Ada pengingat sebelum habis, dan akun yang sudah habis dilewati oleh Auto, Fallback, dan Balance.
 - **Show on Dashboard**: kalau dimatikan, akun jadi cadangan. Akun ini tidak dipakai Fallback, Auto, atau Balance dan tidak punya kartu di Dashboard, tapi tetap bisa dipakai lewat Save & connect; cukup tekan **Save** untuk menyimpan perubahannya.
 
@@ -174,11 +174,9 @@ Dipilih di **Dashboard › Profiles** atau **Settings › General › Profile se
 | **Manual** | Tetap di profil yang dipilih. |
 | **Fallback** | Pindah ke profil berikutnya setelah 3 kali gagal reconnect. Dengan *Fallback: go back to the chosen account* (nyala secara default, 1.7.0), tunnel kembali ke akun pilihanmu begitu login sungguhan berhasil lagi: dicek setiap 5 menit, minimal 3 menit setelah pindah. |
 | **Auto** | Pindah ke profil yang minimal 20 ms lebih cepat (dicek setiap 5 menit). |
-| **Balance** *(1.6.0)* | Beberapa akun jalan bersamaan dan trafik dibagi. Lihat bagian berikutnya. |
+| **Balance** | Beberapa akun jalan bersamaan dan trafik dibagi. Lihat bagian berikutnya. |
 
 ## 9. Balance: menggabungkan speed beberapa modem
-
-*Baru di 1.6.0.*
 
 Balance menjalankan beberapa akun **bersamaan**, masing-masing lewat modemnya sendiri, lalu membagi koneksi dari perangkat LAN ke akun-akun itu. Hasilnya, speed beberapa modem bisa tergabung (1 + 1 ≈ 2).
 
@@ -245,7 +243,7 @@ Cara mengetahui berguna atau tidak: jalankan speedtest multi-thread di mode **Ma
 | **HiLink / Orbit modem** | Mematikan dan menyalakan data lewat API web modem (Huawei HiLink, Telkomsel Orbit). |
 | **Android phone (ADB)** | Mode pesawat di HP yang di-tethering (USB debugging nyala). Butuh paket `adb`. |
 
-### Multi modem *(1.6.0)*
+### Multi modem
 
 - **+ Add modem** menambah modem. Setiap modem punya nama, metode, interface, jadwal, dan range IP sendiri. Setting lama otomatis menjadi Modem 1.
 - **When to change automatically**:
@@ -255,7 +253,7 @@ Cara mengetahui berguna atau tidak: jalankan speedtest multi-thread di mode **Ma
 - **Every (hours)** per modem: ganti IP terjadwal. Isi `0` untuk mematikan.
 - Tunnel hanya reconnect kalau modem yang diganti IP-nya adalah modem yang dipakai tunnel.
 
-### Range IP *(1.6.0)*
+### Range IP
 
 Di **Keep trying until the IP is in**, Change IP diulang sampai IP masuk salah satu range (maksimal **Max tries** kali). Format yang diterima:
 
@@ -325,9 +323,9 @@ Lihat [bagian 13](#13-bot-telegram).
 
 ### Appearance
 
-- Banner adalah header halaman Tomato Tunnel dan tampil di semua tab, berisi logo, daftar protokol, versi, dan pembuat *(1.6.0)*.
+- Banner adalah header halaman Tomato Tunnel dan tampil di semua tab, berisi logo, daftar protokol, versi, dan pembuat.
 - Enam banner bawaan (Tomato, Night Sky, Forest, Ocean, Minimal, Dusk City), **Your own image**, atau **No banner**. No banner berarti header polos dengan warna kartu tema, tanpa gambar.
-- Gambar sendiri: JPG, PNG, atau WebP, sekitar 1200×200, maksimal 500 KB. Setelah di-upload, kotaknya menampilkan gambar kamu dengan tombol **Change…** dan **Remove** *(1.6.0)*.
+- Gambar sendiri: JPG, PNG, atau WebP, sekitar 1200×200, maksimal 500 KB. Setelah di-upload, kotaknya menampilkan gambar kamu dengan tombol **Change…** dan **Remove**.
 
 ### About & update
 

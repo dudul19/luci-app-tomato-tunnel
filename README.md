@@ -67,8 +67,8 @@ the [Releases](https://github.com/dudul19/tomato-tunnel/releases/latest) page,
 copy it to `/tmp` and install it:
 
 ```sh
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.6.0_aarch64_generic.apk   # OpenWrt 25.x and newer
-opkg install /tmp/luci-app-tomato-tunnel_1.6.0_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.apk   # OpenWrt 25.x and newer
+opkg install /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
 ```
 
 Then open LuCI › Services › Tomato Tunnel. Xray accounts need the Xray add-on:
