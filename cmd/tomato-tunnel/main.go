@@ -74,7 +74,7 @@ func main() {
 			fmt.Printf("{\"error\":%q}\n", err.Error())
 			os.Exit(1)
 		}
-		rep := daemon.Measure(context.Background(), c.Main, c.Profiles, 15*time.Second)
+		rep := daemon.Measure(context.Background(), c.Main, c.Profiles, 30*time.Second)
 		daemon.SaveLatency(rep)
 		b, _ := json.Marshal(rep)
 		fmt.Println(string(b))

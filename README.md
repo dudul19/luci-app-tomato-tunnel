@@ -24,9 +24,9 @@ feature, setting and payload tag is explained there.
 
 ## Preview
 
-![Dashboard](docs/screenshots/dashboard-v1.6.0-dark.png)
+![Dashboard](docs/screenshots/dashboard-v1.7.0.png)
 
-Dashboard of v1.6.0 on ImmortalWrt (Lo-fi Blue theme, dark mode) with two accounts in Balance. Public IP, ISP and server domains are blurred.
+Dashboard of v1.7.0 on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
 
 ## Features
 
@@ -38,8 +38,13 @@ Dashboard of v1.6.0 on ImmortalWrt (Lo-fi Blue theme, dark mode) with two accoun
 - **TUN** (whole LAN, TCP and UDP), TCP redirect, or a SOCKS5 port for
   OpenClash and PassWall. DNS through the tunnel.
 - **Dashboard** with live speed, traffic chart, ping and every profile.
-  Switch profiles without Stop / Start.
-- **Profile selection**: Manual, Fallback, Auto (fastest) and **Balance**:
+  Switch profiles without Stop / Start. The page follows your LuCI theme.
+- **Real ping**: each account logs in and opens the check URL through itself,
+  so a dead or locked account shows failed. Unified delay like OpenClash.
+- **Connections** tab: every connection with its device, site, account and
+  speed.
+- **Profile selection**: Manual, Fallback (goes back to your chosen account
+  once it works again), Auto (fastest) and **Balance**:
   several accounts at once, each on its own modem, so the speed of the modems
   adds up. Weight per account, UDP shared per flow, the fastest account
   becomes the main one by itself.
@@ -48,9 +53,11 @@ Dashboard of v1.6.0 on ImmortalWrt (Lo-fi Blue theme, dark mode) with two accoun
   until the IP is in your ranges (`10.0-10.19`, CIDR or prefix).
 - **Usage** per day, account and device, with a quota warning. Account
   expiry reminders.
+- **Schedule**: change the account or the mode at set times.
 - **Telegram bot**: control, alerts and a daily report, English or Bahasa
   Indonesia.
-- Indonesian IPs and chosen domains go direct, small ad block list (Xray).
+- Indonesian IPs and chosen domains go direct for every account type, Block
+  QUIC option, small ad block list (Xray).
 - Updates from GitHub inside LuCI, checked with SHA256.
 
 ## Install
@@ -134,7 +141,7 @@ Thanks to:
 - [Xray-core](https://github.com/XTLS/Xray-core) (XTLS, MPL-2.0) for the Xray add-on
 - The Go team for golang.org/x/crypto/ssh
 - OpenWrt and ImmortalWrt
-- HTTP Custom for the payload modes
+- ePro Dev. Team, makers of HTTP Custom, for the payload modes
 
 ## License
 

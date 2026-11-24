@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dudul19/tomato-tunnel/internal/logx"
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 type DNS struct {
@@ -14,8 +15,11 @@ type DNS struct {
 	Server string
 	Up     Upstream
 	Log    *logx.Logger
-	pc     net.PacketConn
-	ln     net.Listener
+	// OnAnswer, when set, gets the name asked for and the addresses in the
+	// answer, so the Connections list can show names instead of bare IPs.
+	OnAnswer func(name string, ips []net.IP, ttl uint32)
+	pc       net.PacketConn
+	ln       net.Listener
 }
 
 func (d *DNS) Start() error {
@@ -98,7 +102,43 @@ func (d *DNS) ask(q []byte) []byte {
 	if _, err := io.ReadFull(c, ans); err != nil {
 		return servfail(q)
 	}
+	if d.OnAnswer != nil {
+		d.report(ans)
+	}
 	return ans
+}
+
+func (d *DNS) report(ans []byte) {
+	var p dnsmessage.Parser
+	if _, err := p.Start(ans); err != nil {
+		return
+	}
+	qs, err := p.AllQuestions()
+	if err != nil || len(qs) == 0 {
+		return
+	}
+	rs, err := p.AllAnswers()
+	if err != nil {
+		return
+	}
+	var ips []net.IP
+	ttl := uint32(0)
+	for _, r := range rs {
+		switch b := r.Body.(type) {
+		case *dnsmessage.AResource:
+			ips = append(ips, net.IP(b.A[:]))
+		case *dnsmessage.AAAAResource:
+			ips = append(ips, net.IP(b.AAAA[:]))
+		default:
+			continue
+		}
+		if ttl == 0 || r.Header.TTL < ttl {
+			ttl = r.Header.TTL
+		}
+	}
+	if len(ips) > 0 {
+		d.OnAnswer(qs[0].Name.String(), ips, ttl)
+	}
 }
 
 func servfail(q []byte) []byte {

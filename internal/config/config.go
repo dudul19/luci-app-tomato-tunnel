@@ -41,6 +41,9 @@ type Main struct {
 	Bypass        []string
 	BypassID      bool
 	BalanceSticky bool // Balance: keep each destination on one account
+	UnifiedDelay  bool // ping = second request on a warm connection, handshakes left out (like Clash unified-delay)
+	FallbackBack  bool // Fallback: go back to the chosen account once it works again
+	BlockQUIC     bool // drop UDP 443 so browsers and apps use TCP
 	BlockAds      bool
 	DirectDomains []string
 	LogLevel      string
@@ -150,8 +153,43 @@ func (p Profile) Expired(now time.Time) bool {
 }
 
 type Config struct {
-	Main     Main
-	Profiles []Profile
+	Main      Main
+	Profiles  []Profile
+	Schedules []Schedule
+}
+
+// Schedule: at Time (HH:MM) on Days, use an account (Action "account",
+// Value = profile ID) or a profile selection mode (Action "policy").
+type Schedule struct {
+	ID      string
+	Time    string
+	Days    string // daily, weekdays, weekend, or mon,tue,…
+	Action  string
+	Value   string
+	Enabled bool
+}
+
+// Due says whether the schedule fires at t (same minute, matching day).
+func (s Schedule) Due(t time.Time) bool {
+	if !s.Enabled || s.Value == "" || t.Format("15:04") != s.Time {
+		return false
+	}
+	wd := t.Weekday()
+	switch s.Days {
+	case "", "daily":
+		return true
+	case "weekdays":
+		return wd >= time.Monday && wd <= time.Friday
+	case "weekend":
+		return wd == time.Saturday || wd == time.Sunday
+	}
+	short := strings.ToLower(wd.String()[:3])
+	for _, d := range strings.Split(s.Days, ",") {
+		if strings.TrimSpace(strings.ToLower(d)) == short {
+			return true
+		}
+	}
+	return false
 }
 
 func Load(path string) (*Config, error) {
@@ -211,6 +249,9 @@ func FromSections(ss []*uci.Section) (*Config, error) {
 			if ip.Method != "none" {
 				extra = append(extra, ip)
 			}
+		case "schedule":
+			c.Schedules = append(c.Schedules, Schedule{ID: s.Name, Time: strings.TrimSpace(s.Get("time", "")), Days: s.Get("days", "daily"),
+				Action: s.Get("action", "account"), Value: s.Get("value", ""), Enabled: s.Get("enabled", "1") != "0"})
 		case "profile":
 			p := readProfile(s)
 			if p.Order == 0 {
@@ -305,6 +346,9 @@ func readMain(m *Main, s *uci.Section) {
 	m.IPTarget = s.Get("ip_target", "auto")
 	m.BypassID = b(s, "bypass_id", m.BypassID)
 	m.BalanceSticky = b(s, "balance_sticky", false)
+	m.UnifiedDelay = b(s, "unified_delay", true)
+	m.FallbackBack = b(s, "fallback_return", true)
+	m.BlockQUIC = b(s, "block_quic", false)
 	m.BlockAds = b(s, "block_ads", m.BlockAds)
 	for _, v := range s.Lists["direct_domain"] {
 		v = strings.ToLower(strings.TrimSpace(strings.SplitN(v, "#", 2)[0]))

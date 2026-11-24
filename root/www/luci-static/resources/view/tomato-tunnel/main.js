@@ -136,7 +136,7 @@ var UAS = [
 	[ 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36', 'Chrome mobile' ]
 ];
 var BOLT = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z" fill="currentColor"/></svg>';
-var TABS = [ [ 'dashboard', 'Dashboard' ], [ 'accounts', 'Accounts' ], [ 'usage', 'Usage' ], [ 'settings', 'Settings' ], [ 'log', 'Log' ] ];
+var TABS = [ [ 'dashboard', 'Dashboard' ], [ 'accounts', 'Accounts' ], [ 'conns', 'Connections' ], [ 'usage', 'Usage' ], [ 'settings', 'Settings' ], [ 'log', 'Log' ] ];
 function kindOf(d) {
 	var L = layers(d);
 	if (L.zivpn) return 'zv';
@@ -145,6 +145,12 @@ function kindOf(d) {
 	if (L.tls && !L.payload && !L.dns) return 'ssl';
 	if (L.payload && !L.dns && !L.enh && !d.proxy && (!d.payload || d.payload === TEMPLATES.ws || d.payload === TEMPLATES.wss)) return 'ws';
 	return 'custom';
+}
+// a small coloured tag per account type (Dashboard cards and the account list)
+function kindKey(d) {
+	var k = kindOf(d);
+	if (k === 'xray') { var x = (d.x_proto || 'vless').toLowerCase(); return [ 'vless', 'vmess', 'trojan' ].indexOf(x) >= 0 ? x : 'vless'; }
+	return k === 'zv' ? 'zivpn' : k === 'dns' ? 'slowdns' : 'ssh';
 }
 function niceLabel(d) {
 	var k = kindOf(d), L = layers(d);
@@ -155,7 +161,7 @@ function niceLabel(d) {
 	if (k === 'xray') return 'Xray · ' + xrayLabel(d);
 	return layerLabel(L);
 }
-var RESTART_KEYS = [ 'net_mode', 'socks_port', 'socks_listen', 'wan_iface', 'dns_mode', 'dns_server', 'manage_dnsmasq', 'bypass', 'bypass_id', 'block_ads', 'direct_domain', 'ssh_compat', 'check_url', 'check_interval', 'check_fail', 'sessions', 'log_level' ];
+var RESTART_KEYS = [ 'net_mode', 'socks_port', 'socks_listen', 'wan_iface', 'dns_mode', 'dns_server', 'manage_dnsmasq', 'bypass', 'bypass_id', 'block_ads', 'direct_domain', 'ssh_compat', 'check_url', 'unified_delay', 'block_quic', 'check_interval', 'check_fail', 'sessions', 'log_level' ];
 var PROFILE_KEYS = [ 'name', 'type', 'use_payload', 'use_tls', 'use_slowdns', 'enhanced', 'insecure', 'host', 'port', 'user', 'pass', 'bug', 'ua', 'payload', 'proxy', 'udpgw', 'split_delay', 'dns_domain', 'dns_resolver', 'dns_pubkey', 'dns_type', 'expires', 'dashboard', 'wan', 'balance', 'balance_weight',
 	'x_proto', 'uuid', 'x_net', 'x_path', 'x_host', 'x_service', 'x_mode', 'x_flow', 'x_sec', 'sni', 'fp', 'pbk', 'sid', 'spx', 'vcn', 'pcs' ];
 function onDash(p) { return p.dashboard !== '0'; }
@@ -301,6 +307,15 @@ function rangeMeans(from, to) {
 	return [ true, 'Starts with ' + from ];
 }
 var uid = 0;
+function trows(kids) {
+	return E('div', { 'class': 'cbi-section tt-d' }, kids);
+}
+function trow(title, descr, left, right) {
+	return E('div', { 'class': 'tt-row' }, [
+		E('div', { 'class': 'tt-rl' }, [ E('h3', {}, title), descr ? E('div', { 'class': 'tt-rd' }, descr) : '' ].concat(left || [])),
+		E('div', { 'class': 'tt-rr' }, right)
+	]);
+}
 function section(title, kids, descr) {
 	return E('div', { 'class': 'cbi-section' }, [
 		title ? E('h3', {}, title) : '',
@@ -425,7 +440,7 @@ return view.extend({
 		this.tabsEl = E('ul', { 'class': 'cbi-tabmenu' });
 		this.bodyEl = E('div', { 'class': 'tt-wrap' });
 		var root = E('div', { 'class': 'cbi-map tt-wrap' }, [
-			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-23' }),
+			E('link', { 'rel': 'stylesheet', 'href': L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent(this.version) + '-50' }),
 			this.bannerEl = E('div'),
 			this.tabsEl,
 			this.bodyEl
@@ -453,6 +468,7 @@ return view.extend({
 		case 'settings': body = this.renderSettings(); break;
 		case 'usage': body = this.renderUsage(); break;
 		case 'log': body = this.renderLog(); break;
+		case 'conns': body = this.renderConns(); break;
 		default: body = this.renderStatus();
 		}
 		this.bodyEl.innerHTML = '';
@@ -470,6 +486,7 @@ return view.extend({
 			self.ticks = (self.ticks || 0) + 1;
 			if (self.tab === 'dashboard' && self.ticks % 5 === 0 && self.policy() === 'auto')
 				ctlJSON([ 'latency-cached' ]).then(function(l) { if (l && l.results && (!self.lat || l.at !== self.lat.at)) { self.lat = l; self.paintProfiles(); } });
+			if (self.tab === 'conns') return self.loadConns();
 			if (self.tab === 'usage' && self.ticks % 15 === 0) return self.loadUsage();
 			if (self.tab === 'log' || self.tab === 'dashboard') return self.refreshLog();
 			if (self.tab === 'settings' && self.sub === 'about' && self.updating) return self.refreshUpdateLog();
@@ -517,9 +534,12 @@ return view.extend({
 			var step = function(n, on, t, d) {
 				return E('li', { 'class': 'tt-step' + (on ? ' on' : '') }, [ E('span', { 'class': 'tt-stepn' }, String(n)), E('span', {}, [ E('strong', {}, t), E('span', { 'class': 'tt-ss' }, d) ]) ]);
 			};
-			out.push(section(null, [
-				E('div', { 'class': 'tt-state' }, [ E('span', { 'class': 'tt-muted' }, 'Not set up yet') ]),
-				E('p', {}, 'Three steps and your whole network goes through the tunnel.'),
+			out.push(trows([
+				E('div', { 'class': 'tt-head' }, [ E('div', { 'class': 'tt-hl' }, [
+					E('div', { 'class': 'tt-state' }, [ E('span', { 'class': 'tt-dotst tt-muted' }), E('span', { 'class': 'tt-muted' }, 'Not set up yet') ]),
+					E('div', { 'class': 'tt-sub2' }, 'No account yet. Add one and press Start.')
+				]) ]),
+				trow('Get started', 'Three steps and your whole network goes through the tunnel.', [], [
 				E('ol', { 'class': 'tt-steps' }, [
 					step(1, true, 'Add your account', 'SSH, SlowDNS, ZiVPN or Xray from your seller. Or paste the account message or a vless:// link.'),
 					step(2, false, 'Press Start', 'The log shows each step while it connects.'),
@@ -528,6 +548,7 @@ return view.extend({
 				E('div', { 'class': 'tt-actions' }, [
 					button('Add account', 'add', function() { self.show('accounts'); self.newProfile(); }),
 					button('Paste account text', 'action', function() { self.show('accounts'); self.importDialog(); })
+				])
 				])
 			]));
 			return out;
@@ -544,41 +565,39 @@ return view.extend({
 		r.swBox = E('div');
 		r.noteBox = E('div');
 		r.chart = E('div', { 'class': 'tt-chartbox' });
-		r.det = E('div', { 'class': 'tt-det' });
+		r.det = E('div', { 'class': 'tt-detline' });
 		r.balBox = E('div');
-		out.push(section(null, [
+		r.big = E('span', { 'class': 'tt-bign' }, '—');
+		r.bigSub = E('div', { 'class': 'tt-bigs' });
+		r.modemBox = E('div');
+		r.modemRow = trow('Modems', 'Change the IP of each modem.', [], [ r.modemBox ]);
+		r.modemRow.style.display = 'none';
+		r.balRow = trow('Balance', 'Live share of each account. Shown only in Balance mode.', [], [ r.balBox ]);
+		r.balRow.style.display = 'none';
+
+		r.polEl = E('div', { 'class': 'tt-seg tt-pol', 'role': 'group', 'aria-label': 'Profile selection' });
+		r.polHint = E('div', { 'class': 'tt-rd tt-polhint' });
+		r.testBtn = E('button', { 'type': 'button', 'class': 'btn cbi-button cbi-button-neutral tt-ic', 'title': 'Test every account with a real login', 'aria-label': 'Test every account with a real login',
+			'click': function(ev) { self.testLatency(ev.currentTarget); } }, raw(BOLT));
+		r.grid = E('div', { 'class': 'tt-grid' });
+		r.log = E('div', { 'class': 'tt-logbox' });
+
+		out.push(trows([
 			E('div', { 'class': 'tt-head' }, [ E('div', { 'class': 'tt-hl' }, [ r.stateEl, r.subEl ]), r.acts ]),
 			r.swBox,
 			r.noteBox,
-			r.balBox,
-			E('div', { 'class': 'tt-stats' }, [ stat('Download', 'dl', 'tt-dl'), stat('Upload', 'ul', 'tt-ul'), stat('Ping', 'ping', 'tt-ok'), stat('Today', 'today') ]),
-			E('div', { 'class': 'tt-dash2' }, [
-				E('div', { 'class': 'tt-chart' }, [
-					E('div', { 'class': 'tt-chart-h' }, [ E('span', {}, 'Traffic · last 60 s'),
-						E('span', {}, [ E('span', { 'class': 'tt-dl' }, '━'), ' download  ', E('span', { 'class': 'tt-ul' }, '━'), ' upload' ]) ]),
-					r.chart
-				]),
+			trow('Status', 'Live speed through the tunnel. Refreshes every 2 seconds.', [], [
+				E('div', { 'class': 'tt-bigw' }, [ E('div', { 'class': 'tt-bigl' }, [ r.big, E('span', { 'class': 'tt-muted' }, 'download') ]), r.bigSub ]),
+				E('div', { 'class': 'tt-stats' }, [ stat('Downloaded', 'dl'), stat('Uploaded', 'ul'), stat('Ping', 'ping', 'tt-okc'), stat('Today', 'today') ]),
 				r.det
-			])
-		]));
-
-		r.modemBox = E('div');
-		out.push(r.modemBox);
-
-		r.polEl = E('div', { 'class': 'tt-seg tt-pol', 'role': 'group', 'aria-label': 'Profile selection' });
-		r.polHint = E('div', { 'class': 'cbi-section-descr tt-polhint' });
-		r.testBtn = E('button', { 'type': 'button', 'class': 'btn cbi-button cbi-button-neutral tt-ic', 'title': 'Test latency', 'aria-label': 'Test latency',
-			'click': function(ev) { self.testLatency(ev.currentTarget); } }, raw(BOLT));
-		r.grid = E('div', { 'class': 'tt-grid' });
-		out.push(E('div', { 'class': 'cbi-section' }, [
-			E('div', { 'class': 'tt-sechead' }, [ E('h3', {}, [ 'Profiles ', E('small', { 'class': 'tt-muted' }, '· click one to switch, the internet stays on') ]), r.polEl, r.testBtn ]),
-			E('div', { 'class': 'cbi-section-node' }, [ r.polHint, r.grid ])
-		]));
-
-		r.log = E('div', { 'class': 'tt-logbox' });
-		out.push(E('div', { 'class': 'cbi-section' }, [
-			E('div', { 'class': 'tt-sechead' }, [ E('h3', {}, 'Recent log'), E('a', { 'href': '#log', 'click': function(ev) { ev.preventDefault(); self.show('log'); } }, 'Open full log') ]),
-			E('div', { 'class': 'cbi-section-node' }, [ r.log ])
+			]),
+			trow('Traffic', 'Download and upload, last 60 seconds.', [
+				E('div', { 'class': 'tt-legend' }, [ E('span', {}, [ E('i', { 'class': 'tt-lgd' }), 'Download' ]), E('span', {}, [ E('i', { 'class': 'tt-lgu' }), 'Upload' ]) ])
+			], [ E('div', { 'class': 'tt-chart' }, [ r.chart ]) ]),
+			trow('Accounts', '', [ r.polHint ], [ E('div', { 'class': 'tt-acctbar' }, [ r.polEl, r.testBtn ]), r.grid ]),
+			r.modemRow,
+			r.balRow,
+			trow('Recent log', '', [ E('a', { 'class': 'tt-rlink', 'href': '#log', 'click': function(ev) { ev.preventDefault(); self.show('log'); } }, 'Open full log →') ], [ r.log ])
 		]));
 		return out;
 	},
@@ -650,10 +669,14 @@ return view.extend({
 		r.subEl.innerHTML = '';
 		r.subEl.appendChild(E('span', {}, l.filter(function(x) { return x; }).join(' · ')));
 
-		r.dl.textContent = on ? fmtRate(st.rate_rx) : '—';
-		r.dlSub.textContent = live ? fmtBytes(st.rx) + ' this session' : '';
-		r.ul.textContent = on ? fmtRate(st.rate_tx) : '—';
-		r.ulSub.textContent = live ? fmtBytes(st.tx) + ' this session' : '';
+		r.big.textContent = on ? fmtRate(st.rate_rx) : '—';
+		r.bigSub.innerHTML = '';
+		r.bigSub.appendChild(E('span', {}, [ E('span', { 'class': 'tt-muted' }, 'upload '), E('span', { 'class': 'tt-mono tt-ul' }, on ? fmtRate(st.rate_tx) : '—'),
+			E('span', { 'class': 'tt-muted' }, act['.name'] ? ' · ' + niceLabel(act) : '') ]));
+		r.dl.textContent = live ? fmtBytes(st.rx) : '—';
+		r.dlSub.textContent = live ? 'this session' : '';
+		r.ul.textContent = live ? fmtBytes(st.tx) : '—';
+		r.ulSub.textContent = live ? 'this session' : '';
 		r.ping.textContent = on && st.ping_ms ? st.ping_ms + ' ms' : '—';
 		r.pingSub.textContent = on && st.ping_ms ? (st.ping_ms < 150 ? 'good' : (st.ping_ms < 400 ? 'ok' : 'slow')) : '';
 		r.today.textContent = st.today_bytes != null && live ? fmtBytes(st.today_bytes) : '—';
@@ -661,18 +684,14 @@ return view.extend({
 		r.todaySub.textContent = q > 0 && st.period_bytes != null ? Math.round(st.period_bytes / (q * 1073741824) * 100) + '% of the ' + q + ' GB warning' : 'through the tunnel';
 		this.paintChart();
 
-		var L = layers(act), where = act['.name'] ? (L.dns ? 'NS ' + (act.dns_domain || '?') : (act.host || '?') + ':' + (act.port || defPort(L))) : '—';
-		var ex = act['.name'] ? expInfo(act, +this.get('expiry_warn', '3')) : null;
-		var drow = function(k, v, c, t) { return E('div', { 'class': 'tt-drow' }, [ E('span', { 'class': 'tt-muted' }, k), E('span', { 'class': c || '', 'title': t || null }, v) ]); };
-		var dkey = [ on, st.public_ip, st.country, st.isp, where, ex && ex.text, st.reconnects_today, st.banner ].join('|');
+		var dkey = [ on, st.public_ip, st.country, st.isp, st.reconnects_today ].join('|');
 		if (r.detKey !== dkey) {
 			r.detKey = dkey;
 			r.det.innerHTML = '';
-			r.det.appendChild(drow('Public IP', on && st.public_ip ? st.public_ip : '—', 'tt-mono'));
-			r.det.appendChild(drow('Network', on ? ([ st.country, st.isp ].filter(function(x) { return x; }).join(' · ') || '—') : '—'));
-			r.det.appendChild(drow('Server', where, 'tt-mono', on && st.banner ? st.banner + ' · ' + (st.kex || '') : null));
-			r.det.appendChild(drow('Account', ex ? ex.text : 'no expiry set', ex && (ex.soon || ex.expired) ? (ex.expired ? 'tt-bad' : 'tt-busy') : ''));
-			r.det.appendChild(drow('Reconnects today', on ? String(st.reconnects_today || 0) : '—'));
+			var part = function(k, v, c) { return E('span', { 'class': 'tt-dp' }, [ E('span', { 'class': 'tt-muted' }, k + ' '), E('span', { 'class': c || '' }, v) ]); };
+			r.det.appendChild(part('Public IP', on && st.public_ip ? st.public_ip : '—', 'tt-mono'));
+			r.det.appendChild(part('ISP', on ? ([ st.country, st.isp ].filter(function(x) { return x; }).join(' · ') || '—') : '—'));
+			r.det.appendChild(part('Reconnects today', on ? String(st.reconnects_today || 0) : '—', 'tt-mono'));
 		}
 
 		this.paintBalance();
@@ -711,9 +730,17 @@ return view.extend({
 		if (!r.balBox) return;
 		var list = (st.state && st.state !== 'stopped' && this.policy() === 'balance') ? (st.balance || []) : [];
 		r.balBox.innerHTML = '';
+		if (r.balRow) r.balRow.style.display = list.length ? '' : 'none';
 		if (!list.length) return;
 		var tot = list.reduce(function(a, b) { return a + (b.rate_rx || 0); }, 0) || 1;
-		r.balBox.appendChild(E('div', { 'class': 'tt-bal' }, [
+		// accounts with "Show on Dashboard" off get no row; shares stay out of the full total
+		var isHidden = function(b) { return uci.get(CONF, b.key, 'dashboard') === '0'; };
+		var hid = list.filter(isHidden);
+		list = list.filter(function(b) { return !isHidden(b); });
+		if (hid.length) r.balBox.appendChild(E('div', { 'class': 'tt-ss tt-balhid' }, hid.map(function(b) { return b.name; }).join(', ') +
+			(hid.length > 1 ? ' are' : ' is') + ' hidden from the Dashboard but ' + (hid.length > 1 ? 'also carry' : 'also carries') + ' traffic' + (hid.some(function(b) { return b.main; }) ? ' (main account)' : '') + '.'));
+		if (!list.length) return;
+		r.balBox.insertBefore(E('div', { 'class': 'tt-bal' }, [
 			E('div', { 'class': 'tt-balr tt-balh' }, [ E('span', {}, 'Account · modem'), E('span', {}, 'Speed now'), E('span', {}, 'Share of download'), E('span', {}, 'Flows') ])
 		].concat(list.map(function(b) {
 			var pct = b.state === 'connected' ? Math.round((b.rate_rx || 0) / tot * 100) : 0;
@@ -724,7 +751,7 @@ return view.extend({
 				E('span', { 'class': 'tt-balp' }, [ E('span', { 'class': 'tt-qbar' }, E('i', { 'style': 'width:' + pct + '%' })), E('span', { 'class': 'tt-mono' }, pct + '%') ]),
 				E('span', { 'class': 'tt-mono', 'title': 'TCP connections / UDP flows' }, String(b.streams || 0) + (b.udp ? ' + ' + b.udp + ' udp' : ''))
 			]);
-		}))));
+		}))), r.balBox.firstChild);
 	},
 
 	paintModems: function(ms) {
@@ -736,10 +763,9 @@ return view.extend({
 		if (r.modemKey === key) return;
 		r.modemKey = key;
 		r.modemBox.innerHTML = '';
+		if (r.modemRow) r.modemRow.style.display = ms.length ? '' : 'none';
 		if (!ms.length) return;
-		r.modemBox.appendChild(E('div', { 'class': 'cbi-section' }, [
-			E('div', { 'class': 'tt-sechead' }, [ E('h3', {}, [ 'Modems ', E('small', { 'class': 'tt-muted' }, '· change IP per modem') ]) ]),
-			E('div', { 'class': 'cbi-section-node' }, E('div', { 'class': 'tt-mgrid' }, ms.map(function(m) {
+		r.modemBox.appendChild(E('div', { 'class': 'tt-mgrid' }, ms.map(function(m) {
 				var x = live[m.sid] || {};
 				var msg = x.changing ? 'changing…' : (x.msg || '');
 				var b = button(x.changing ? 'Changing…' : 'Change IP', x.tunnel ? 'action' : 'neutral', function(ev) { self.changeIP(ev.currentTarget, m.sid, m.name()); });
@@ -750,8 +776,7 @@ return view.extend({
 					E('span', { 'class': 'tt-ss' + (x.changing ? ' tt-warnc' : '') }, msg || METHOD_NAMES[m.get('ip_method', 'none')]),
 					b
 				]);
-			})))
-		]));
+			})));
 	},
 
 	changeIP: function(btn, id, name) {
@@ -828,9 +853,13 @@ return view.extend({
 
 		r.grid.innerHTML = '';
 		if (!ps.length) { r.grid.appendChild(E('em', {}, 'No profiles yet. Add one in the Accounts tab.')); return; }
+		if (!ps.some(onDash)) { r.grid.appendChild(E('em', { 'class': 'tt-muted' }, 'Every account is hidden from the Dashboard. Turn on "Show on Dashboard" in the Accounts tab.')); }
+		// "Show on Dashboard" off always hides the card, also for the account that is running now.
+		var curP = ps.filter(function(p) { return p['.name'] === cur; })[0];
 		var hidden = ps.filter(function(p) { return !onDash(p) && p['.name'] !== cur; }).length;
-		ps = ps.filter(function(p) { return onDash(p) || p['.name'] === cur; });
-		if (hidden) r.polHint.textContent += ' ' + hidden + (hidden > 1 ? ' accounts are' : ' account is') + ' not on the Dashboard and never used.';
+		ps = ps.filter(onDash);
+		if (curP && !onDash(curP)) r.polHint.textContent += ' ' + (curP.name || cur) + (live ? ' is running' : ' is selected') + ' but hidden from the Dashboard.';
+		if (hidden) r.polHint.textContent += ' ' + hidden + (hidden > 1 ? ' accounts are' : ' account is') + ' not on the Dashboard and never used by Fallback or Auto.';
 		ps.forEach(function(p) {
 			var id = p['.name'], L = layers(p);
 			var where = L.dns ? 'NS ' + (p.dns_domain || '?') : (p.host || '?') + ':' + (p.port || defPort(L));
@@ -874,8 +903,8 @@ return view.extend({
 				'aria-pressed': pol === 'balance' && !isCur ? (inBal(p) ? 'true' : 'false') : null,
 				'aria-current': isCur ? 'true' : null,
 				'keydown': function(ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } },
-				'class': 'tt-tile' + (isCur ? ' cur' : '') + (isSw ? ' sw' : '') + (dis ? ' dis' : '') + (pol === 'balance' && !isCur && inBal(p) ? ' bal' : ''),
-				'title': failAt ? 'The server refused the login (account locked, expired or wrong password). Cleared after a successful login.' : (t ? (t.error || ('TCP ping ' + (t.target || ''))) : null),
+				'class': 'tt-tile tt-kt-' + kindKey(p) + (isCur ? ' cur' : '') + (isSw ? ' sw' : '') + (dis ? ' dis' : '') + (pol === 'balance' && !isCur && inBal(p) ? ' bal' : ''),
+				'title': failAt ? 'The server refused the login (account locked, expired or wrong password). Cleared after a successful login.' : (t ? (t.error || (t.target === 'live tunnel' ? 'Ping of the running tunnel' : 'Real delay: logged in and opened ' + (t.target || 'the check URL') + ' through this account')) : null),
 				'click': go
 			}, [
 				E('span', { 'class': 'tt-tt' }, [ E('span', { 'class': 'tt-radio' }), E('strong', {}, p.name || id), E('span', { 'class': bcls }, badge) ]),
@@ -888,7 +917,7 @@ return view.extend({
 
 	switchTo: function(id, name, live) {
 		var self = this;
-		return ctl([ 'switch', id ]).then(reloadConf).then(function() {
+		return this.commit(false).then(function() { return ctl([ 'switch', id ]); }).then(reloadConf).then(function() {
 			if (live) ui.addNotification(null, E('p', 'Switching to ' + name + '. The current tunnel stays up until it is ready.'), 'info');
 			self.refs.gridKey = null;
 			setTimeout(function() { self.refresh(); }, 600);
@@ -919,12 +948,19 @@ return view.extend({
 
 	act: function(btn, what) {
 		var self = this;
-		if (what === 'start' && !this.profiles().length) {
-			ui.addNotification(null, E('p', 'Add an account in the Accounts tab first.'), 'warning');
+		var saved = this.profiles().filter(function(p) { return p['.name'] !== self.newId; });
+		if (what !== 'stop' && !saved.length) {
+			ui.addNotification(null, E('p', this.newId ? 'Save the new account first: press Save & connect under the form.' : 'Add an account in the Accounts tab first.'), 'warning');
 			return this.show('accounts');
 		}
 		btn.disabled = true;
-		return ctl([ what ]).then(function() { setTimeout(function() { self.refresh(); }, 800); })
+		// The tunnel reads /etc/config, so whatever this page still holds (imported accounts,
+		// the selected account) is written first. An empty "new account" placeholder whose form
+		// was never saved is dropped so it does not end up in the config.
+		if (what !== 'stop') this.cancelNew(true);
+		var first = what === 'stop' ? Promise.resolve() : this.commit(false);
+		return first.then(function() { return ctl([ what ]); })
+			.then(function() { setTimeout(function() { self.refresh(); }, 800); })
 			.finally(function() { btn.disabled = false; });
 	},
 
@@ -936,15 +972,13 @@ return view.extend({
 		this.paintList();
 		this.paintEditor();
 		return [
-			E('div', { 'class': 'cbi-section' }, [
-				E('div', { 'class': 'tt-sechead' }, [
-					E('h3', {}, [ 'Your accounts ', E('small', { 'class': 'tt-muted' }, '· order = fallback order') ]),
+			trows([ trow('Your accounts', 'The order is the fallback order: the first account is tried first.', [
+				E('div', { 'class': 'tt-actions tt-lacts' }, [
 					button('+ Add account', 'add', function() { self.cancelNew(true); self.newProfile(); }),
 					button('Import', 'action', function() { self.importDialog(); }),
 					button('Backup / restore', 'neutral', function() { self.backupDialog(); })
-				]),
-				E('div', { 'class': 'cbi-section-node' }, [ this.refs.list ])
-			]),
+				])
+			], [ this.refs.list ]) ]),
 			this.refs.pick,
 			this.refs.editor
 		];
@@ -994,7 +1028,7 @@ return view.extend({
 			var where = L.dns ? 'NS ' + (p.dns_domain || '?') : (p.host || '?') + ':' + (p.port || defPort(L));
 			var ex = expInfo(p, warn);
 			var nm = p.name || id;
-			var rowEl = E('div', { 'class': 'tt-pi' + (id === self.sel ? ' sel' : ''), 'draggable': 'true',
+			var rowEl = E('div', { 'class': 'tt-pi tt-kt-' + kindKey(p) + (id === self.sel ? ' sel' : ''), 'draggable': 'true',
 				'dragstart': function(ev) { drag = i; rowEl.classList.add('drag'); try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', id); } catch (e) {} },
 				'dragend': function() { rowEl.classList.remove('drag'); box.querySelectorAll('.tt-pi.over').forEach(function(x) { x.classList.remove('over'); }); },
 				'dragover': function(ev) { if (drag == null || drag === i) return; ev.preventDefault(); rowEl.classList.add('over'); },
@@ -1070,8 +1104,8 @@ return view.extend({
 				ui.hideModal();
 				self.cancelNew(true);
 				list.forEach(function(v) { self.addProfile(v, true); });
-				self.paintList(); self.paintEditor();
-				ui.addNotification(null, E('p', 'Imported ' + list.length + ' profile' + (list.length > 1 ? 's' : '') + '. Check them, then Save & Apply.'), 'info');
+				self.commit('Imported and saved ' + list.length + ' account' + (list.length > 1 ? 's' : '') + '. Press Start or Save & connect to use ' + (list.length > 1 ? 'them' : 'it') + '.')
+					.then(function() { self.paintList(); self.paintEditor(); });
 			} }, 'Read')
 		]));
 	},
@@ -1218,8 +1252,8 @@ return view.extend({
 			button('Share link', 'neutral', function() { self.saveDraft(true).then(function() { self.shareLink(id); }); }),
 			button('Delete', 'remove', function() { self.deleteProfile(id); })
 		];
-		var head = E('div', { 'class': 'tt-sechead' }, [ E('h3', {}, isNew ? 'New account' : 'Edit: ' + (d.name || id)) ]);
-		this.refs.editor.appendChild(E('div', { 'class': 'cbi-section' }, [ head, E('div', { 'class': 'cbi-section-node' }, rows.concat([ E('div', { 'class': 'tt-actions' }, acts), this.refs.testOut ])) ]));
+		this.refs.editor.appendChild(trows([ trow(isNew ? 'New account' : 'Edit: ' + (d.name || id), isNew ? 'Fill in what your seller gave you, then test or connect.' : niceLabel(d), [],
+			rows.concat([ E('div', { 'class': 'tt-actions' }, acts), this.refs.testOut ])) ]));
 	},
 
 	paintAdvanced: function() {
@@ -1381,7 +1415,7 @@ return view.extend({
 			'Balance only. Higher = more connections.'));
 		rows.push(this.expiryRow(d));
 		rows.push(row('Show on Dashboard', checkbox(d.dashboard !== '0', function(v) { d.dashboard = v ? '' : '0'; }),
-			'Only accounts on the Dashboard are used by Fallback and Auto. Turn it off to keep this one as a spare; Save & connect here still uses it.'));
+			'Only accounts on the Dashboard are used by Fallback and Auto. Turn it off to keep this one as a spare: its card is hidden, and Save & connect here still connects it.'));
 		this.editorSection(rows, d, id, 'custom');
 	},
 
@@ -1497,7 +1531,11 @@ return view.extend({
 			this.set('profile', id);
 			p = this.commit(false).then(function() { return self.runAfterSave(false); });
 		} else if (apply) {
-			p = this.commit(false);
+			p = this.commit(false).then(function() {
+				return ctlJSON([ 'status' ]).then(function(st) {
+					if (st && st.state && st.state !== 'stopped') return ctl([ 'reload' ]); // the running tunnel picks up the change
+				});
+			});
 		} else {
 			p = uci.save().then(function() {
 				ui.addNotification(null, E('p', 'Saved (not applied yet). Use Save & Apply to connect with it.'), 'info');
@@ -1577,16 +1615,15 @@ return view.extend({
 		this.uRange = this.uRange || 'd30';
 		var g = function(o, d) { return self.get(o, d); };
 		this.loadUsage();
-		return [
-			section('Usage', [
+		return [ trows([
+			trow('Usage', 'Traffic that went through the tunnel. Totals are saved every 10 minutes and on Stop.', [
+				E('div', { 'class': 'tt-legend' }, [ E('span', {}, 'Click a bar for details.') ]), r.uRange
+			], [
 				r.uTiles,
-				E('div', { 'class': 'tt-chart' }, [
-					E('div', { 'class': 'tt-chart-h' }, [ E('span', {}, [ E('strong', {}, 'Daily traffic'), ' · click a bar for details' ]), r.uRange ]),
-					r.uBars, r.uAxis
-				]),
+				E('div', { 'class': 'tt-chart' }, [ r.uBars, r.uAxis ]),
 				E('div', { 'class': 'tt-ugrid' }, [ r.uProf, r.uDev ])
-			], 'Traffic that went through the tunnel. Totals are saved every 10 minutes and on Stop.'),
-			section('Usage settings', [
+			]),
+			trow('Usage settings', 'Kept for 90 days (months for 2 years) in /etc/tomato-tunnel/usage.json. Per-device numbers need TUN mode.', [], [
 				row('Period starts on day', textInput(g('usage_reset_day', '1'), function(v) { self.set('usage_reset_day', v.trim()); }, { 'inputmode': 'numeric' }), 'Day of the month your package renews (1–28).'),
 				row('Warn at (GB per period)', textInput(g('usage_quota_gb', '0'), function(v) { self.set('usage_quota_gb', v.trim()); }, { 'inputmode': 'numeric' }), '0 = off. Shows a notice on the Dashboard at 80% and 100%.'),
 				E('div', { 'class': 'tt-actions' }, [
@@ -1596,8 +1633,8 @@ return view.extend({
 						ctl([ 'usage-reset' ]).then(function() { return self.loadUsage(); });
 					})
 				])
-			], 'Kept for 90 days (months for 2 years) in /etc/tomato-tunnel/usage.json. Per-device numbers need TUN mode.')
-		];
+			])
+		]) ];
 	},
 
 	loadUsage: function() {
@@ -1705,6 +1742,7 @@ return view.extend({
 			[ 'general', 'General', 'Start, reconnect, reminders' ],
 			[ 'changeip', 'Change IP', 'Modems, IP ranges' ],
 			[ 'network', 'Network', 'TUN, SOCKS, DNS, bypass' ],
+			[ 'schedule', 'Schedule', 'Change account or mode by time' ],
 			[ 'telegram', 'Telegram', 'Bot, alerts, remote control' ],
 			[ 'look', 'Appearance', 'Banner' ],
 			[ 'about', 'About & update', 'Version, update, credits' ]
@@ -1712,7 +1750,7 @@ return view.extend({
 		if (!SUBS.some(function(x) { return x[0] === self.sub; })) this.sub = 'general';
 		this.snap = JSON.stringify(uci.get(CONF, 'main') || {});
 		var nav = E('div', { 'class': 'tt-subnav', 'role': 'tablist', 'aria-label': 'Settings sections' });
-		var body = E('div', { 'class': 'tt-setbody' });
+		var body = E('div');
 		var paint = function() {
 			nav.innerHTML = '';
 			SUBS.forEach(function(x) {
@@ -1723,7 +1761,7 @@ return view.extend({
 			self.settingsBody(self.sub).forEach(function(k) { if (k) body.appendChild(k); });
 		};
 		paint();
-		return [ E('div', { 'class': 'tt-set' }, [ nav, body ]) ];
+		return [ trows([ E('div', { 'class': 'tt-row tt-setrow' }, [ E('div', { 'class': 'tt-rl' }, [ E('h3', {}, 'Settings'), nav ]), E('div', { 'class': 'tt-rr tt-setbody' }, [ body ]) ]) ]) ];
 	},
 
 	applySettings: function(btn) {
@@ -1761,6 +1799,7 @@ return view.extend({
 		]);
 		if (sub === 'about') return this.renderAbout();
 		if (sub === 'telegram') return this.renderTelegram();
+		if (sub === 'schedule') return this.renderSchedule();
 		if (sub === 'changeip') return [ this.renderChangeIP(), foot ];
 		if (sub === 'look') {
 			var cur = g('banner', 'tomato');
@@ -1839,7 +1878,7 @@ return view.extend({
 				row('Manage dnsmasq', flag('manage_dnsmasq', '1'), 'Restored on Stop.'),
 				row('Indonesian IPs go direct', flag('bypass_id', '0'), 'Local sites and games use your normal line (TUN and TCP redirect mode). Works for every account type.'),
 				row('Direct IPs / devices', bypass, 'IP, CIDR or device that skips the tunnel, one per line. Server and LAN are bypassed automatically.'),
-				row('Direct domains (Xray)', dd, 'One per line, subdomains included. Good for bank apps that block VPN IPs. Xray accounts only.'),
+				row('Direct domains', dd, 'One per line, subdomains included. These sites leave straight through the modem, not the tunnel: good for bank apps and games that block VPN IPs. Works for every account type (SSH, SlowDNS and ZiVPN need DNS through the tunnel).'),
 				row('Block ads (Xray)', flag('block_ads', '0'), 'Small built-in list of ad and tracker domains. Some apps may break; turn it off if so. Xray accounts only.'),
 				row('SSH compatibility', sel('ssh_compat', 'auto', [ [ 'auto', 'Auto (recommended)' ], [ 'legacy', 'Legacy (old Dropbear first)' ], [ 'modern', 'Modern only' ] ]),
 					'Old Dropbear servers are handled automatically.')
@@ -1848,9 +1887,12 @@ return view.extend({
 		return [ section('General', [
 			row('Start on boot', flag('autostart', '0'), 'Connect automatically when the router starts.'),
 			row('Profile selection', sel('policy', self.policy(), [ [ 'manual', 'Manual · stay on the chosen profile' ], [ 'fallback', 'Fallback · next profile when one fails' ], [ 'auto', 'Auto · move to the fastest profile' ], [ 'balance', 'Balance · several accounts at once, speed added up' ] ]), 'Also on the Dashboard.'),
+			row('Fallback: go back to the chosen account', flag('fallback_return', '1'), 'When Fallback moved to a backup account, the chosen one is tested every 5 minutes with a real login and used again once it works (at least 3 minutes after the move).'),
+			row('Block QUIC (UDP 443)', flag('block_quic', '0'), 'Browsers and apps use TCP instead of QUIC/HTTP3. Can make video steadier when UDP goes through UDPGW or Xray over TCP. Games, calls and DNS are not touched.'),
 			row('Balance: same account per site', flag('balance_sticky', '0'), 'On: one site stays on one account (banks, games), but no added speed for it.'),
 			row('Warn before expiry', sel('expiry_warn', '3', [ [ '1', '1 day' ], [ '3', '3 days' ], [ '7', '7 days' ] ]), 'Expired profiles are skipped by Auto and Fallback.'),
 			row('Connection check URL', txt('check_url', 'http://cp.cloudflare.com/generate_204', { 'spellcheck': 'false' })),
+			row('Unified delay', flag('unified_delay', '1'), 'Ping without the connection handshakes, like OpenClash: smaller numbers that show the real round trip. Off: the full time of one new request.'),
 			row('Check every (seconds)', txt('check_interval', '5', { 'inputmode': 'numeric' })),
 			row('Failures before reconnect', txt('check_fail', '3', { 'inputmode': 'numeric' })),
 			row('Parallel SSH sessions', sel('sessions', '1', [ [ '1', '1 (normal)' ], [ '2', '2' ], [ '3', '3' ], [ '4', '4' ] ]))
@@ -2190,10 +2232,100 @@ return view.extend({
 		});
 	},
 
+	renderSchedule: function() {
+		var self = this, box = E('div', { 'class': 'tt-sched' });
+		var DAYS = [ [ 'daily', 'Every day' ], [ 'weekdays', 'Mon–Fri' ], [ 'weekend', 'Sat–Sun' ] ];
+		var MODES = [ [ 'manual', 'Manual' ], [ 'fallback', 'Fallback' ], [ 'auto', 'Auto' ], [ 'balance', 'Balance' ] ];
+		var paint = function() {
+			box.innerHTML = '';
+			var list = uci.sections(CONF, 'schedule').slice().sort(function(a, b) { return (a.time || '').localeCompare(b.time || ''); });
+			var accs = self.profiles().map(function(p) { return [ p['.name'], p.name || p['.name'] ]; });
+			if (!list.length) box.appendChild(E('em', { 'class': 'tt-muted' }, 'No schedule yet. Example: 00:00 use the night-quota account, 06:00 back to the main one.'));
+			list.forEach(function(sc) {
+				var id = sc['.name'], act = sc.action || 'account';
+				var valSel = select(sc.value || '', [ [ '', '— choose —' ] ].concat(act === 'policy' ? MODES : accs), function(v) { uci.set(CONF, id, 'value', v); });
+				box.appendChild(E('div', { 'class': 'tt-schr' }, [
+					E('input', { 'class': 'cbi-input-text', 'type': 'time', 'value': sc.time || '00:00', 'aria-label': 'Time',
+						'change': function(ev) { uci.set(CONF, id, 'time', ev.target.value); } }),
+					select(sc.days || 'daily', DAYS, function(v) { uci.set(CONF, id, 'days', v); }),
+					select(act, [ [ 'account', 'Use account' ], [ 'policy', 'Set mode' ] ], function(v) { uci.set(CONF, id, 'action', v); uci.set(CONF, id, 'value', ''); paint(); }),
+					valSel,
+					select(sc.enabled === '0' ? '0' : '1', [ [ '1', 'On' ], [ '0', 'Off' ] ], function(v) { uci.set(CONF, id, 'enabled', v); }),
+					button('Delete', 'remove', function() { uci.remove(CONF, id); paint(); })
+				]));
+			});
+		};
+		paint();
+		return [ section('Schedule', [
+			E('div', { 'class': 'tt-schr tt-schh' }, [ E('span', {}, 'Time'), E('span', {}, 'Days'), E('span', {}, 'Action'), E('span', {}, 'Account / mode'), E('span', {}, 'Status'), E('span', {}) ]),
+			box,
+			E('div', { 'class': 'tt-actions' }, [
+				button('+ Add', 'add', function() { var sid = uci.add(CONF, 'schedule'); uci.set(CONF, sid, 'time', '00:00'); uci.set(CONF, sid, 'days', 'daily'); uci.set(CONF, sid, 'action', 'account'); uci.set(CONF, sid, 'enabled', '1'); paint(); }),
+				button('Save', 'save', function() { self.commit('Schedule saved. It runs while the tunnel is on.'); })
+			])
+		], 'At the given time the tunnel uses another account or another mode, like clicking it yourself. Runs while the tunnel is on, by the router clock.') ];
+	},
+
+	renderConns: function() {
+		var self = this, r = this.refs;
+		r.cSum = E('div', { 'class': 'tt-csum' });
+		r.cBody = E('div', { 'class': 'tt-ctab' }, E('em', { 'class': 'tt-muted' }, 'Loading…'));
+		r.cFilter = E('input', { 'class': 'cbi-input-text', 'type': 'search', 'placeholder': 'Filter: device, site, account', 'aria-label': 'Filter connections',
+			'input': function() { self.paintConns(); } });
+		this.loadConns();
+		return [ trows([ trow('Connections', 'What goes through the tunnel right now, fastest first. Refreshes every 2 seconds.', [ r.cFilter, r.cSum ], [ r.cBody ]) ]) ];
+	},
+
+	loadConns: function() {
+		var self = this;
+		if (this.connsBusy) return Promise.resolve();
+		this.connsBusy = true;
+		return ctlJSON([ 'conns' ]).then(function(c) { self.conns = c || {}; self.paintConns(); }).finally(function() { self.connsBusy = false; });
+	},
+
+	paintConns: function() {
+		var r = this.refs, c = this.conns || {}, list = c.conns || [];
+		if (!r.cBody) return;
+		var q = (r.cFilter.value || '').trim().toLowerCase();
+		var rows = list.filter(function(x) {
+			if (!q) return true;
+			return [ x.host, x.dst, x.account, (x.devices || []).join(' ') ].join(' ').toLowerCase().indexOf(q) >= 0;
+		});
+		var per = {};
+		list.forEach(function(x) { per[x.account || '—'] = (per[x.account || '—'] || 0) + 1; });
+		r.cSum.innerHTML = '';
+		r.cSum.appendChild(E('div', {}, [ E('strong', {}, String(list.length)), ' open' ]));
+		Object.keys(per).sort().forEach(function(k) { r.cSum.appendChild(E('div', { 'class': 'tt-muted' }, k + ' · ' + per[k])); });
+		r.cBody.innerHTML = '';
+		if ((c.state || '') === 'stopped' || !list.length) {
+			r.cBody.appendChild(E('em', { 'class': 'tt-muted' }, list.length ? '' : 'No connections right now. The tunnel is stopped or nothing is being used.'));
+			return;
+		}
+		if (c.direct) r.cBody.appendChild(E('div', { 'class': 'tt-ss tt-cnote' }, 'The tunnel goes straight to Xray, so traffic per connection is not counted. Devices and sites are still shown.'));
+		var head = E('div', { 'class': 'tt-crow tt-chead' }, [ E('span', {}, 'Device'), E('span', {}, 'Site'), E('span', {}, 'Account'), E('span', {}, 'Speed'), E('span', {}, 'Total'), E('span', {}, 'Time') ]);
+		var box = E('div', { 'class': 'tt-clist' }, [ head ]);
+		rows.slice(0, 200).forEach(function(x) {
+			var port = (x.dst || '').replace(/^.*:/, '');
+			var site = x.host ? x.host + (port && port !== '443' && port !== '80' ? ':' + port : '') : (x.dst || '—');
+			var spd = (x.rate_rx || x.rate_tx) ? [ E('span', { 'class': 'tt-dl' }, '↓ ' + fmtRate(x.rate_rx || 0)), ' ', E('span', { 'class': 'tt-ul' }, '↑ ' + fmtRate(x.rate_tx || 0)) ] : E('span', { 'class': 'tt-muted' }, 'idle');
+			box.appendChild(E('div', { 'class': 'tt-crow' }, [
+				E('span', { 'class': 'tt-cdev' }, (x.devices && x.devices.length) ? x.devices.join(', ') : E('span', { 'class': 'tt-muted' }, x.dst === 'UDPGW' ? 'UDP via UDPGW' : '—')),
+				E('span', { 'class': 'tt-csite', 'title': x.dst || '' }, [ E('span', { 'class': 'tt-cproto' }, (x.proto || '').toUpperCase()), ' ', site ]),
+				E('span', {}, x.account || '—'),
+				E('span', { 'class': 'tt-mono' }, x.rx < 0 ? '—' : spd),
+				E('span', { 'class': 'tt-mono' }, x.rx < 0 ? '—' : fmtBytes((x.rx || 0) + (x.tx || 0))),
+				E('span', { 'class': 'tt-mono tt-muted' }, x.age != null ? fmtDur(x.age) : '—')
+			]));
+		});
+		if (rows.length > 200) box.appendChild(E('div', { 'class': 'tt-ss' }, (rows.length - 200) + ' more not shown. Use the filter.'));
+		if (!rows.length) box.appendChild(E('em', { 'class': 'tt-muted' }, 'Nothing matches the filter.'));
+		r.cBody.appendChild(box);
+	},
+
 	renderLog: function() {
 		var self = this;
 		this.refs.log = E('div', { 'class': 'tt-logbox tall' });
-		return [ section('Log', [
+		return [ trows([ trow('Log', 'What the tunnel did, newest at the bottom. Debug shows payload parts and raw server replies.', [], [
 			row('Level', select(this.get('log_level', 'info'), [ [ 'info', 'Info' ], [ 'debug', 'Debug (payload parts, raw replies)' ], [ 'error', 'Errors only' ] ], function(v) {
 				self.set('log_level', v);
 				self.commit('Log level saved (applies on the next restart).');
@@ -2209,7 +2341,7 @@ return view.extend({
 				}),
 				button('Clear', 'remove', function() { ctl([ 'clear-log' ]).then(function() { self.refs.lastLog = null; self.refreshLog(); }); })
 			])
-		]) ];
+		]) ]) ];
 	},
 
 	renderAbout: function() {
@@ -2233,12 +2365,11 @@ return view.extend({
 					E('div', { 'class': 'tt-authi' }, [
 						E('span', { 'class': 'tt-authw' }, raw(LOCKUP_THEME)),
 						E('span', { 'class': 'tt-ss' }, [ 'Made by ', E('a', { 'href': TG, 'target': '_blank', 'rel': 'noopener' }, '@dudulrealnofek'), ' · v' + this.version + ' · GPL-3.0' ]),
-						E('span', { 'class': 'tt-ss' }, 'Bug reports and ideas are welcome on Telegram.')
+						E('span', { 'class': 'tt-ss' }, 'Bug reports and ideas are welcome in the group.')
 					]),
 					E('div', { 'class': 'tt-authb' }, [
-						E('a', { 'class': 'btn cbi-button cbi-button-action', 'href': TG, 'target': '_blank', 'rel': 'noopener' }, 'Telegram'),
-						E('a', { 'class': 'btn cbi-button cbi-button-neutral', 'href': 'https://t.me/tfnuklir', 'target': '_blank', 'rel': 'noopener' }, 'Group @tfnuklir'),
-						E('a', { 'class': 'btn cbi-button cbi-button-action', 'href': 'https://github.com/' + (g('update_repo', 'dudul19/tomato-tunnel')) + '/blob/main/docs/GUIDE.md', 'target': '_blank', 'rel': 'noopener' }, 'Guide'),
+						E('a', { 'class': 'btn cbi-button cbi-button-action', 'href': 'https://t.me/tfnuklir', 'target': '_blank', 'rel': 'noopener' }, 'Group'),
+						E('a', { 'class': 'btn cbi-button cbi-button-neutral', 'href': 'https://github.com/' + (g('update_repo', 'dudul19/tomato-tunnel')) + '/blob/main/docs/GUIDE.md', 'target': '_blank', 'rel': 'noopener' }, 'Guide'),
 						E('a', { 'class': 'btn cbi-button cbi-button-neutral', 'href': 'https://github.com/' + (g('update_repo', 'dudul19/tomato-tunnel')), 'target': '_blank', 'rel': 'noopener' }, 'Source on GitHub')
 					])
 				]),
@@ -2251,7 +2382,7 @@ return view.extend({
 					[ 'XTLS', 'https://github.com/XTLS/Xray-core', 'Xray-core', 'VLESS, VMess, Trojan, REALITY (MPL-2.0)' ],
 					[ 'Go team', 'https://pkg.go.dev/golang.org/x/crypto/ssh', 'x/crypto/ssh', 'the SSH client' ],
 					[ 'OpenWrt & ImmortalWrt', 'https://openwrt.org/', 'OpenWrt', 'the firmware and LuCI' ],
-					[ 'HTTP Custom', null, 'HTTP Custom', 'inspiration for the payload modes' ]
+					[ 'ePro Dev. Team', null, 'HTTP Custom', 'inspiration for the payload modes' ]
 				].map(function(t) {
 					return E(t[1] ? 'a' : 'div', { 'class': 'tt-thxc', 'href': t[1], 'target': t[1] ? '_blank' : null, 'rel': t[1] ? 'noopener' : null }, [
 						E('span', { 'class': 'tt-thxt' }, [ E('strong', {}, t[0]), E('span', { 'class': 'tt-thxp tt-mono' }, t[2]) ]),

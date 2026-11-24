@@ -110,6 +110,7 @@ func (b *balancer) pick(cs []*tunnel.Pool, count map[*tunnel.Pool]int64) int {
 // the zero-copy path of the proxy (Raw / Counted) working.
 type balConn struct {
 	net.Conn
+	pool *tunnel.Pool
 	once sync.Once
 	done func()
 }
@@ -134,6 +135,7 @@ func (c *balConn) Counted(read, written int64) {
 
 type balRelay struct {
 	proxy.UDPRelay
+	pool *tunnel.Pool
 	once sync.Once
 	done func()
 }
@@ -472,7 +474,7 @@ func (d *Daemon) balanceCheck() {
 	url, limit := d.cfg.Main.CheckURL, d.cfg.Main.CheckFail
 	for k, p := range ps {
 		go func(k string, p *tunnel.Pool) {
-			ms, err := check(p, url)
+			ms, err := check(p, url, d.cfg.Main.UnifiedDelay)
 			b.mu.Lock()
 			defer b.mu.Unlock()
 			if err == nil {
@@ -588,7 +590,7 @@ func (d *Daemon) balanceDial(main *tunnel.Pool, addr string) (net.Conn, bool, er
 				b.mu.Unlock()
 			}
 			pp := p
-			return &balConn{Conn: conn, done: func() { b.mu.Lock(); b.tcp[pp]--; b.mu.Unlock() }}, true, nil
+			return &balConn{Conn: conn, pool: pp, done: func() { b.mu.Lock(); b.tcp[pp]--; b.mu.Unlock() }}, true, nil
 		}
 		last = err
 	}
@@ -645,7 +647,7 @@ func (d *Daemon) balanceUDP(main *tunnel.Pool, onPacket func(src *net.UDPAddr, d
 		b.mu.Lock()
 		b.udp[pp]++
 		b.mu.Unlock()
-		return &balRelay{UDPRelay: r, done: func() { b.mu.Lock(); b.udp[pp]--; b.mu.Unlock() }}, true
+		return &balRelay{UDPRelay: r, pool: pp, done: func() { b.mu.Lock(); b.udp[pp]--; b.mu.Unlock() }}, true
 	}
 	return nil, false
 }

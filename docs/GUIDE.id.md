@@ -136,29 +136,34 @@ VLESS, VMess, atau Trojan lewat TCP, WebSocket, HTTPUpgrade, gRPC, atau XHTTP, d
   - **Lebih dari satu modem:** pilih interface sesuai namanya di Network › Interfaces. Daftar menampilkan nama dan device aslinya, misalnya `wan (wwan0)` atau `hp (usb0)`. Namanya bebas, yang penting interface itu memang terhubung ke modem yang dimaksud.
 - **Balance weight** *(baru di 1.6.0)*: jatah koneksi di mode Balance, 1–5.
 - **Expires on**: tanggal habis akun. Ada pengingat sebelum habis, dan akun yang sudah habis dilewati oleh Auto, Fallback, dan Balance.
-- **Show on Dashboard**: kalau dimatikan, akun jadi cadangan. Akun ini tidak dipakai Fallback, Auto, atau Balance, tapi tetap bisa dipakai lewat Save & connect.
+- **Show on Dashboard**: kalau dimatikan, akun jadi cadangan. Akun ini tidak dipakai Fallback, Auto, atau Balance dan tidak punya kartu di Dashboard, tapi tetap bisa dipakai lewat Save & connect; cukup tekan **Save** untuk menyimpan perubahannya.
 
 ## 6. Tab Accounts
 
 - **+ Add account**: membuat akun baru.
-- **Import**: menempel link akun atau teks pesan akun dari penjual.
+- **Import**: menempel link akun atau teks pesan akun dari penjual. Akun hasil import langsung tersimpan *(1.7.0)*.
 - **Share link**: membagikan satu akun sebagai link.
 - **Backup / restore**: **Export all accounts (.json)** dan **Restore from file**.
 - **Edit**, **Delete**, **Test**: per akun.
 - **Urutan akun** bisa diubah dengan cara diseret. Urutan ini dipakai oleh Fallback.
+- Garis di kiri tiap akun menunjukkan jenisnya (warna sama seperti di Dashboard) *(1.7.0)*.
 
 ## 7. Tab Dashboard
 
-- **Status**: Connected / Connecting / Stopped, nama profil, jenis koneksi, mode trafik, dan lama tersambung.
-- Tombol **Start**, **Restart**, **Stop**, dan **Change IP** (jika diaktifkan).
-- **Download, Upload, Ping, Today**: speed live, ping, dan pemakaian hari ini.
-- **Grafik trafik 60 detik**: disimpan oleh daemon, jadi tetap ada setelah halaman di-reload. Saat koneksi putus, grafik menampilkan celah.
-- **Detail**: IP publik, jaringan (negara dan ISP), server, masa aktif akun, dan jumlah reconnect hari ini.
-- **Profiles**: semua akun dengan latency-nya. Klik kartu untuk pindah profil **tanpa Stop/Start**. Tunnel lama tetap jalan sampai profil baru tersambung, dan kalau gagal tidak ada yang berubah.
-- **Tes latency** (ikon petir): TCP ping ke port server, atau satu query DNS untuk SlowDNS. Tidak perlu login SSH.
-- **Modems** *(1.6.0, jika ada lebih dari satu modem)*: IP tiap modem dan tombol Change IP per modem.
-- **Tabel Balance** *(1.6.0, mode Balance)*: speed, pembagian trafik, ping, dan jumlah koneksi tiap akun.
+Tampilan baru di 1.7.0: setiap bagian berupa baris dengan judul di kiri, dan warna, tombol, serta kartunya ikut tema LuCI, jadi cocok di tema apa pun.
+
+- **Status**: Connected / Connecting / Stopped, nama akun, jenis koneksi, mode trafik, dan lama tersambung, dengan tombol **Start**, **Restart**, **Stop**, dan **Change IP** (jika diaktifkan).
+- **Angka status**: speed download live (besar) beserta upload, lalu **Downloaded, Uploaded, Ping, Today**, dan satu baris berisi IP publik, ISP, serta jumlah reconnect hari ini.
+- **Traffic**: grafik 60 detik, disimpan oleh daemon jadi tetap ada setelah halaman di-reload. Saat koneksi putus, grafik menampilkan celah.
+- **Accounts**: tombol mode (Manual, Fallback, Auto, Balance) dan tes latency (ikon petir) di atas kartu akun. Kartu tampil sampai tiga kolom. Garis di kiri kartu menunjukkan jenis akun: SSH teal, SlowDNS ungu, ZiVPN oranye, VLESS biru, VMess indigo, Trojan pink. Klik kartu untuk pindah akun **tanpa Stop/Start**: tunnel lama tetap jalan sampai akun baru tersambung, dan kalau gagal tidak ada yang berubah. Akun dengan **Show on Dashboard** mati tidak punya kartu, termasuk saat sedang jalan.
+- **Ping di kartu** *(1.7.0)*: tes sungguhan. Setiap akun login lalu membuka URL cek lewat dirinya sendiri, jadi akun yang mati, terkunci, atau expired tampil **failed** walaupun servernya masih menjawab. Akun yang sedang jalan memakai ping tunnel yang aktif. Dengan **Unified delay** (nyala secara default, seperti OpenClash), waktu handshake tidak dihitung, hanya waktu bolak-balik, jadi angkanya lebih kecil dan adil antara SSH dan Xray.
+- **Modems** *(jika lebih dari satu modem)*: IP tiap modem dan tombol Change IP per modem.
+- **Balance** *(hanya mode Balance)*: baris sendiri berisi speed, pembagian trafik, ping, dan jumlah koneksi tiap akun.
 - **Recent log**: log terbaru.
+
+### Tab Connections *(1.7.0)*
+
+Semua koneksi yang sedang lewat tunnel, yang tercepat di atas, diperbarui setiap 2 detik: **Device** (nama dari DHCP), **Site** (nama dari DNS tunnel), **Account** yang dipakai, **Speed**, **Total**, dan **Time**. Bisa difilter berdasarkan perangkat, situs, atau akun; kolom kiri menghitung koneksi per akun. Daftar hanya dibuat selama tab ini dibuka, jadi tidak membebani router di luar itu. Kalau akun Xray jalan sendiri (bukan Balance), TUN langsung masuk ke Xray: perangkat dan situs tetap tampil, speed dan total tidak.
 
 ## 8. Pemilihan profil: Manual, Fallback, Auto, Balance
 
@@ -167,7 +172,7 @@ Dipilih di **Dashboard › Profiles** atau **Settings › General › Profile se
 | Mode | Cara kerja |
 |---|---|
 | **Manual** | Tetap di profil yang dipilih. |
-| **Fallback** | Pindah ke profil berikutnya setelah 3 kali gagal reconnect. |
+| **Fallback** | Pindah ke profil berikutnya setelah 3 kali gagal reconnect. Dengan *Fallback: go back to the chosen account* (nyala secara default, 1.7.0), tunnel kembali ke akun pilihanmu begitu login sungguhan berhasil lagi: dicek setiap 5 menit, minimal 3 menit setelah pindah. |
 | **Auto** | Pindah ke profil yang minimal 20 ms lebih cepat (dicek setiap 5 menit). |
 | **Balance** *(1.6.0)* | Beberapa akun jalan bersamaan dan trafik dibagi. Lihat bagian berikutnya. |
 
@@ -280,9 +285,12 @@ Tips: tulis prefix dengan titik di akhir. `114.1` juga cocok dengan 114.10.x sam
 |---|---|
 | Start on boot | Konek otomatis saat router menyala |
 | Profile selection | Manual / Fallback / Auto / Balance |
+| Fallback: go back to the chosen account *(1.7.0)* | Lihat [bagian 8](#8-pemilihan-profil-manual-fallback-auto-balance). Nyala secara default |
+| Block QUIC (UDP 443) *(1.7.0)* | Browser dan aplikasi memakai TCP, bukan QUIC/HTTP3. Bisa membuat video lebih stabil kalau UDP lewat UDPGW atau Xray di atas TCP. Game, telepon, dan DNS tidak terpengaruh. Mati secara default |
 | Balance: same account per site | Lihat [bagian 9](#9-balance-menggabungkan-speed-beberapa-modem) |
 | Warn before expiry | Pengingat 1, 3, atau 7 hari sebelum akun habis |
 | Connection check URL | URL untuk cek koneksi (default `http://cp.cloudflare.com/generate_204`) |
+| Unified delay *(1.7.0)* | Ping tanpa waktu handshake, seperti OpenClash. Nyala secara default |
 | Check every (seconds) | Jarak antar cek (default 5 detik) |
 | Failures before reconnect | Berapa kali cek gagal sebelum reconnect (default 3) |
 | Parallel SSH sessions | 1–4 sesi SSH sekaligus untuk satu akun |
@@ -290,6 +298,10 @@ Tips: tulis prefix dengan titik di akhir. `114.1` juga cocok dengan 114.10.x sam
 ### Change IP
 
 Lihat [bagian 10](#10-change-ip-dan-multi-modem).
+
+### Schedule *(1.7.0)*
+
+Pada jam tertentu tunnel memakai akun lain atau mode lain, sama seperti kalau kamu klik sendiri. Setiap baris berisi **Time**, **Days** (setiap hari, Senin–Jumat, Sabtu–Minggu), **Action** (*Use account* atau *Set mode*), akun atau modenya, dan **On / Off**. Tekan **+ Add**, lalu **Save**; perubahan berlaku tanpa restart. Contoh: 00:00 pakai akun kuota malam, 06:00 kembali ke akun utama. Jadwal hanya jalan selama tunnel menyala, memakai jam router.
 
 ### Network
 
@@ -303,7 +315,7 @@ Lihat [bagian 10](#10-change-ip-dan-multi-modem).
 | Manage dnsmasq | dnsmasq diarahkan ke DNS tunnel saat tersambung, dan dikembalikan saat Stop |
 | Indonesian IPs go direct | Situs dan game lokal lewat jalur biasa, tidak lewat tunnel (daftar APNIC Indonesia). Berlaku untuk semua jenis akun. |
 | Direct IPs / devices | IP, CIDR, atau perangkat yang tidak lewat tunnel, satu per baris |
-| Direct domains (Xray) | Domain yang selalu lewat jalur biasa, misalnya aplikasi bank |
+| Direct domains | Domain yang keluar langsung lewat modem, misalnya aplikasi bank dan game yang memblokir IP VPN. Satu per baris, subdomain ikut. Berlaku untuk semua jenis akun *(1.7.0)*; SSH, SlowDNS, dan ZiVPN butuh DNS lewat tunnel, dan aplikasinya mungkin perlu dibuka ulang setelah domain ditambahkan |
 | Block ads (Xray) | Daftar kecil pemblokir iklan dan tracker |
 | SSH compatibility | Auto / Legacy / Modern only |
 
@@ -485,6 +497,7 @@ Jangan dua-duanya di mode TUN. Set Tomato Tunnel ke **SOCKS5 only**.
 | 1.3.1 | Hanya memakai build Xray milik Tomato Tunnel |
 | 1.4.0 | Bot Telegram, grafik Dashboard tetap ada setelah reload |
 | 1.5.0 | Perbaikan putus di Dropbear lama, TUN langsung ke Xray, benchmark |
+| 1.7.0 | Tampilan baru di semua tab yang mengikuti tema LuCI, tab Connections, ping sungguhan dengan unified delay, Fallback kembali ke akun pilihan, Block QUIC, Direct domains untuk semua jenis akun, Schedule, warna per jenis akun, akun hasil import langsung tersimpan |
 | 1.6.0 | Multi modem, range IP Change IP, Go out through per akun, mode Balance (weight, UDP per aliran, akun utama tercepat), tag payload baru (`[ip]`, `[proxy]`, `[ws_key]`, rotate/random, `*N`), banner jadi header di semua tab, perbaikan upload banner |
 
 ---

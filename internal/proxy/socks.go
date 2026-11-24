@@ -22,6 +22,18 @@ type UDPRelay interface {
 	Close()
 }
 
+// QUICBlocker, when the upstream implements it and says yes, makes UDP to
+// port 443 (QUIC / HTTP3) go nowhere, so browsers and apps use TCP instead.
+// NativeUDPTo is NativeUDP that also gets the first destination, so the
+// upstream can send a flow outside the tunnel (Direct domains).
+type NativeUDPTo interface {
+	NativeUDPTo(dst *net.UDPAddr, onPacket func(src *net.UDPAddr, data []byte)) (UDPRelay, bool, error)
+}
+
+type QUICBlocker interface {
+	BlockQUIC() bool
+}
+
 type NativeUDP interface {
 	NativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (UDPRelay, bool, error)
 }
@@ -243,20 +255,32 @@ func (s *Socks) udpAssociate(ctrl net.Conn) {
 		pc.WriteToUDP(append(h, data...), dst)
 	}
 	var gw UDPRelay
-	if nu, ok := s.Up.(NativeUDP); ok {
-		r, native, err := nu.NativeUDP(onPacket)
+	open := func(dst *net.UDPAddr) bool {
+		var r UDPRelay
+		var native bool
+		var err error
+		if nt, ok := s.Up.(NativeUDPTo); ok {
+			r, native, err = nt.NativeUDPTo(dst, onPacket)
+		} else if nu, ok := s.Up.(NativeUDP); ok {
+			r, native, err = nu.NativeUDP(onPacket)
+		}
 		if native {
 			if err != nil {
 				s.Log.Debugf("udp", "%v", err)
-				return
+				return false
 			}
 			gw = r
 		}
+		if gw == nil {
+			gw = &UDPGW{Up: s.Up, Log: s.Log, OnPacket: onPacket}
+		}
+		return true
 	}
-	if gw == nil {
-		gw = &UDPGW{Up: s.Up, Log: s.Log, OnPacket: onPacket}
-	}
-	defer gw.Close()
+	defer func() {
+		if gw != nil {
+			gw.Close()
+		}
+	}()
 
 	go func() {
 		io.Copy(io.Discard, ctrl)
@@ -279,6 +303,11 @@ func (s *Socks) udpAssociate(ctrl net.Conn) {
 		if err != nil {
 			continue
 		}
+		if port == 443 {
+			if qb, ok := s.Up.(QUICBlocker); ok && qb.BlockQUIC() {
+				continue
+			}
+		}
 		ip := net.ParseIP(host)
 		if ip == nil {
 			ips, err := net.LookupIP(host)
@@ -287,7 +316,11 @@ func (s *Socks) udpAssociate(ctrl net.Conn) {
 			}
 			ip = ips[0]
 		}
-		if err := gw.Send(&net.UDPAddr{IP: ip, Port: port}, r.b); err != nil {
+		dst := &net.UDPAddr{IP: ip, Port: port}
+		if gw == nil && !open(dst) {
+			return
+		}
+		if err := gw.Send(dst, r.b); err != nil {
 			s.Log.Debugf("udpgw", "%v", err)
 		}
 	}

@@ -872,7 +872,7 @@ func (b *Bot) profiles(ctx context.Context, chat, drop int64) {
 }
 
 func (b *Bot) latency(ctx context.Context, chat, drop int64) {
-	b.show(ctx, chat, newCard(b.t("Testing latency…", "Mengetes latency…")).text(b.t("About 20 seconds.", "Sekitar 20 detik.")).msg(), nil, drop)
+	b.show(ctx, chat, newCard(b.t("Testing latency…", "Mengetes latency…")).text(b.t("Logging in to every account, up to a minute.", "Login ke setiap akun, paling lama 1 menit.")).msg(), nil, drop)
 	b.goSafe(func() {
 		cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		ctl(cctx, "latency")

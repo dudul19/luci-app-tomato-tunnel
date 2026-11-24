@@ -129,24 +129,99 @@ type Daemon struct {
 	lastIPChange time.Time
 	lastIP       map[string]time.Time
 	bal          *balancer
+	flows        flowTable   // open connections, for the Connections tab
 	mainBad      atomic.Bool // the main pool failed its last check
 	failRun      int
 }
 
 func (d *Daemon) Dial(addr string) (net.Conn, error) {
+	if h, _, err := net.SplitHostPort(addr); err == nil && d.directFor(h) {
+		c, err := tunnel.DirectDialer(d.directIface()).Dial("tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		return d.track(c, addr, "Direct"), nil
+	}
 	p := d.pool.Load()
 	if d.balancing() {
 		if c, ok, err := d.balanceDial(p, addr); ok {
-			return c, err
+			if err != nil {
+				return c, err
+			}
+			name := ""
+			if bc, ok := c.(*balConn); ok && bc.pool != nil {
+				name = bc.pool.P.Name
+			}
+			return d.track(c, addr, name), nil
 		}
 	}
 	if p == nil {
 		return nil, tunnel.ErrNoSession
 	}
-	return p.Dial(addr)
+	c, err := p.Dial(addr)
+	if err != nil {
+		return c, err
+	}
+	return d.track(c, addr, p.P.Name), nil
+}
+
+func (d *Daemon) track(c net.Conn, addr, account string) net.Conn {
+	proto := "tcp"
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() {
+			proto, addr = "udp", "UDPGW" // the server's UDP gateway: all UDP of one device app
+		}
+	}
+	return &trackConn{Conn: c, f: d.flows.add(proto, addr, account), t: &d.flows}
+}
+
+// BlockQUIC: the "Block QUIC" setting (read live, so Save applies it at once).
+func (d *Daemon) BlockQUIC() bool { return d.cfg.Main.BlockQUIC }
+
+// NativeUDPTo: a flow to a Direct domain leaves through the modem, the rest as NativeUDP.
+func (d *Daemon) NativeUDPTo(dst *net.UDPAddr, onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
+	if dst != nil && d.directFor(dst.IP.String()) {
+		var fp atomic.Pointer[flow]
+		r, err := d.newDirectUDP(func(src *net.UDPAddr, data []byte) {
+			if f := fp.Load(); f != nil {
+				f.rx.Add(int64(len(data)))
+			}
+			onPacket(src, data)
+		})
+		if err != nil {
+			return nil, true, err
+		}
+		f := d.flows.add("udp", dst.String(), "Direct")
+		fp.Store(f)
+		return &trackRelay{UDPRelay: r, f: f, t: &d.flows}, true, nil
+	}
+	return d.NativeUDP(onPacket)
 }
 
 func (d *Daemon) NativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
+	var fp atomic.Pointer[flow]
+	counted := func(src *net.UDPAddr, data []byte) {
+		if f := fp.Load(); f != nil {
+			f.rx.Add(int64(len(data)))
+		}
+		onPacket(src, data)
+	}
+	r, native, err := d.nativeUDP(counted)
+	if r == nil || err != nil {
+		return r, native, err
+	}
+	name := ""
+	if br, ok := r.(*balRelay); ok && br.pool != nil {
+		name = br.pool.P.Name
+	} else if p := d.pool.Load(); p != nil {
+		name = p.P.Name
+	}
+	f := d.flows.add("udp", "", name)
+	fp.Store(f)
+	return &trackRelay{UDPRelay: r, f: f, t: &d.flows}, native, nil
+}
+
+func (d *Daemon) nativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
 	p := d.pool.Load()
 	if d.balancing() {
 		if r, ok := d.balanceUDP(p, onPacket); ok {
@@ -195,8 +270,8 @@ func Run(cfgPath string, foreground bool) error {
 	log.Infof("start", "Starting Tomato Tunnel %s", Version)
 
 	if len(cfg.Profiles) == 0 {
-		d.set(func(s *Status) { s.State, s.Message = "failed", "no profile configured" })
-		log.Errorf("config", "No profile configured")
+		d.set(func(s *Status) { s.State, s.Message = "failed", "no saved account" })
+		log.Errorf("config", "No saved account in /etc/config/tomato-tunnel. Add one in the Accounts tab and press Save & connect.")
 		return fmt.Errorf("no profile")
 	}
 
@@ -226,6 +301,7 @@ func Run(cfgPath string, foreground bool) error {
 		return err
 	}
 	go d.statusLoop(ctx)
+	go d.scheduleLoop(ctx)
 	go d.modemStatus()
 	go d.balanceLoop(ctx)
 	if cfg.Main.UpdateCheck {
@@ -254,7 +330,7 @@ func (d *Daemon) startServices() error {
 		d.svcs = append(d.svcs, r)
 	}
 	if m.DNSMode == "tunnel" {
-		dns := &proxy.DNS{Addr: net.JoinHostPort("127.0.0.1", strconv.Itoa(m.DNSPort)), Server: net.JoinHostPort(m.DNSServer, "53"), Up: d, Log: d.log}
+		dns := &proxy.DNS{Addr: net.JoinHostPort("127.0.0.1", strconv.Itoa(m.DNSPort)), Server: net.JoinHostPort(m.DNSServer, "53"), Up: d, Log: d.log, OnAnswer: d.flows.learnName}
 		if err := dns.Start(); err != nil {
 			return fmt.Errorf("DNS port %d: %v", m.DNSPort, err)
 		}
@@ -364,7 +440,7 @@ func (d *Daemon) stopHev() {
 }
 
 func XrayOpts(m config.Main) tunnel.XrayOpts {
-	return tunnel.XrayOpts{DirectDomains: m.DirectDomains, BlockAds: m.BlockAds, CheckURL: m.CheckURL, RunDir: RunDir}
+	return tunnel.XrayOpts{DirectDomains: m.DirectDomains, BlockAds: m.BlockAds, BlockQUIC: m.BlockQUIC, CheckURL: m.CheckURL, RunDir: RunDir}
 }
 
 func (d *Daemon) newPool(p config.Profile) *tunnel.Pool {
@@ -592,9 +668,6 @@ func (d *Daemon) trySwitch(ctx context.Context, cur *tunnel.Pool, id, why string
 }
 
 func (d *Daemon) startMeasure(ctx context.Context) {
-	if !d.measuring.CompareAndSwap(false, true) {
-		return
-	}
 	var profiles []config.Profile
 	cur := ""
 	if p := d.pool.Load(); p != nil {
@@ -605,10 +678,18 @@ func (d *Daemon) startMeasure(ctx context.Context) {
 			profiles = append(profiles, p)
 		}
 	}
+	d.measureOf(ctx, profiles)
+}
+
+// measureOf tests the given accounts in the background; the report arrives on autoRes.
+func (d *Daemon) measureOf(ctx context.Context, profiles []config.Profile) {
+	if len(profiles) == 0 || !d.measuring.CompareAndSwap(false, true) {
+		return
+	}
 	m := d.cfg.Main
 	go func() {
 		defer d.measuring.Store(false)
-		rep := Measure(ctx, m, profiles, 15*time.Second)
+		rep := Measure(ctx, m, profiles, 30*time.Second)
 		SaveLatency(rep)
 		select {
 		case d.autoRes <- rep:
@@ -641,6 +722,7 @@ func (d *Daemon) bestOf(rep LatencyReport, cur config.Profile) (string, int64, i
 
 func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 	m := d.cfg.Main
+	since := time.Now()
 	t := time.NewTicker(time.Duration(m.CheckInterval) * time.Second)
 	defer t.Stop()
 	failed := 0
@@ -697,12 +779,23 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 			auto.Reset(AutoInterval)
 			if d.policy() == "auto" {
 				d.startMeasure(ctx)
+			} else if p, ok := d.fallbackHome(pool); ok && time.Since(since) >= fallbackSettle {
+				d.measureOf(ctx, []config.Profile{p}) // is the chosen account back?
 			}
 		case rep := <-d.autoRes:
 			for k, r := range rep.Results {
 				if r.Auth {
 					d.markLogin(k, true)
 				}
+			}
+			if p, ok := d.fallbackHome(pool); ok {
+				if r, in := rep.Results[ProfileKey(p)]; in && r.MS >= 0 && !r.Auth {
+					why := fmt.Sprintf("Fallback: %s works again (%d ms). ", p.Name, r.MS)
+					if np, order, err := d.trySwitch(ctx, pool, ProfileKey(p), why); err == nil {
+						return monResult{pool: np, order: order}
+					}
+				}
+				continue
 			}
 			if d.policy() != "auto" {
 				continue
@@ -724,7 +817,7 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 			}
 		case <-t.C:
 			d.ensureHev()
-			ms, err := check(pool, m.CheckURL)
+			ms, err := check(pool, m.CheckURL, m.UnifiedDelay)
 			if err != nil {
 				failed++
 				d.mainBad.Store(true)
@@ -743,9 +836,32 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 }
 
 const (
-	AutoInterval = 5 * time.Minute
-	AutoMargin   = 20
+	AutoInterval   = 5 * time.Minute
+	AutoMargin     = 20
+	fallbackSettle = 3 * time.Minute // least time on a backup account before Fallback tries to go back
 )
+
+// fallbackHome is the chosen account when Fallback runs on another one and
+// may go back to it (setting on, account usable). Read fresh from the config,
+// so a choice made on the page counts at once.
+func (d *Daemon) fallbackHome(cur *tunnel.Pool) (config.Profile, bool) {
+	if cur == nil || d.policy() != "fallback" || !d.cfg.Main.FallbackBack {
+		return config.Profile{}, false
+	}
+	c, err := config.Load(d.cfgPath)
+	if err != nil {
+		return config.Profile{}, false
+	}
+	o := c.Ordered()
+	if len(o) == 0 {
+		return config.Profile{}, false
+	}
+	p := o[0]
+	if ProfileKey(p) == ProfileKey(cur.P) || !p.Dashboard || p.Expired(time.Now()) || p.Validate() != nil || d.loginFailed(ProfileKey(p)) {
+		return config.Profile{}, false
+	}
+	return p, true
+}
 
 func (d *Daemon) handleCmds(ctx context.Context) {
 	work := CmdFile + ".work"
@@ -813,24 +929,40 @@ func (d *Daemon) handleCmds(ctx context.Context) {
 	}
 }
 
-func check(pool *tunnel.Pool, url string) (int64, error) {
+// check opens the check URL through the tunnel on a fresh connection, so a
+// broken tunnel is always noticed. With unified on (like Clash unified-delay)
+// a second request goes over that same warm connection and its time is the
+// ping: tunnel and remote handshakes are left out, only the round trip counts.
+func check(pool *tunnel.Pool, url string, unified bool) (int64, error) {
 	tr := &http.Transport{
-		DialContext:       func(ctx context.Context, _, addr string) (net.Conn, error) { return pool.Dial(addr) },
-		DisableKeepAlives: true,
+		DialContext:         func(ctx context.Context, _, addr string) (net.Conn, error) { return pool.Dial(addr) },
+		DisableKeepAlives:   !unified,
+		MaxIdleConnsPerHost: 1,
 	}
+	defer tr.CloseIdleConnections()
 	cl := &http.Client{Transport: tr, Timeout: 10 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	start := time.Now()
-	resp, err := cl.Get(url)
-	if err != nil {
-		return 0, err
+	get := func() (int64, error) {
+		start := time.Now()
+		resp, err := cl.Get(url)
+		if err != nil {
+			return 0, err
+		}
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+		resp.Body.Close()
+		if resp.StatusCode >= 500 {
+			return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+		}
+		return time.Since(start).Milliseconds(), nil
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
-	resp.Body.Close()
-	if resp.StatusCode >= 500 {
-		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	ms, err := get()
+	if err != nil || !unified {
+		return ms, err
 	}
-	return time.Since(start).Milliseconds(), nil
+	if ms2, err2 := get(); err2 == nil {
+		return ms2, nil
+	}
+	return ms, nil
 }
 
 func shortErr(err error) string {
@@ -1066,6 +1198,9 @@ func (d *Daemon) statusLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+		if connsWanted() {
+			d.writeConns()
 		}
 		p := d.pool.Load()
 		d.mu.Lock()

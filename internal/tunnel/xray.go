@@ -25,6 +25,7 @@ import (
 type XrayOpts struct {
 	DirectDomains []string
 	BlockAds      bool
+	BlockQUIC     bool // UDP 443 to blackhole, so clients fall back to TCP
 	CheckURL      string
 	RunDir        string
 }
@@ -236,6 +237,9 @@ func XrayConfig(p config.Profile, port int, iface, serverIP string, o XrayOpts) 
 			ds = append(ds, "domain:"+d)
 		}
 		rules = append(rules, map[string]any{"type": "field", "domain": ds, "outboundTag": "direct"})
+	}
+	if o.BlockQUIC {
+		rules = append(rules, map[string]any{"type": "field", "network": "udp", "port": "443", "outboundTag": "block"})
 	}
 	if o.BlockAds {
 		var ds []string

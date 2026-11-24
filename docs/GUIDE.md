@@ -134,29 +134,34 @@ VLESS, VMess or Trojan over TCP, WebSocket, HTTPUpgrade, gRPC or XHTTP, with TLS
   - **More than one modem:** pick the interface by its name in Network › Interfaces. The list shows the name and the real device, such as `wan (wwan0)` or `hp (usb0)`. The name does not matter, as long as the interface is the one on that modem.
 - **Balance weight** *(new in 1.6.0)*: the share of connections in Balance mode, 1–5.
 - **Expires on**: the account's end date. You get a reminder before it ends, and expired accounts are skipped by Auto, Fallback and Balance.
-- **Show on Dashboard**: turn it off to keep the account as a spare. It is never used by Fallback, Auto or Balance, but Save & connect still uses it.
+- **Show on Dashboard**: turn it off to keep the account as a spare. It is never used by Fallback, Auto or Balance and has no card on the Dashboard, but Save & connect still uses it; a plain **Save** is enough for the change.
 
 ## 6. Accounts tab
 
 - **+ Add account**: a new account.
-- **Import**: paste an account link or the account message from your seller.
+- **Import**: paste an account link or the account message from your seller. Imported accounts are saved at once *(1.7.0)*.
 - **Share link**: share one account as a link.
 - **Backup / restore**: **Export all accounts (.json)** and **Restore from file**.
 - **Edit**, **Delete**, **Test**: per account.
 - **Reorder** accounts by dragging them. Fallback uses this order.
+- The line on the left of each account shows its type (same colours as the Dashboard) *(1.7.0)*.
 
 ## 7. Dashboard tab
 
-- **Status**: Connected / Connecting / Stopped, profile name, connection type, traffic mode and uptime.
-- **Start**, **Restart**, **Stop** and **Change IP** (when turned on).
-- **Download, Upload, Ping, Today**: live speed, ping and today's usage.
-- **60-second traffic chart**: kept by the daemon, so it is still there after a page reload. Drops show as gaps.
-- **Details**: public IP, network (country and ISP), server, account expiry and reconnects today.
-- **Profiles**: every account with its latency. Click a card to switch **without Stop / Start**. The current tunnel keeps working until the new profile is connected; if it fails, nothing changes.
-- **Latency test** (bolt icon): TCP ping to the server port, or one DNS query for SlowDNS. No SSH login needed.
-- **Modems** *(1.6.0, with more than one modem)*: each modem's IP and a Change IP button per modem.
-- **Balance table** *(1.6.0, Balance mode)*: speed, share of traffic, ping and connections of each account.
+The page has a new look in 1.7.0: every part is a row with its title on the left, and the colours, buttons and cards come from your LuCI theme, so it fits any theme.
+
+- **Status**: Connected / Connecting / Stopped, the account, connection type, traffic mode and uptime, with **Start**, **Restart**, **Stop** and **Change IP** (when turned on).
+- **Status numbers**: the live download speed (big) with upload, then **Downloaded, Uploaded, Ping, Today**, and one line with the public IP, the ISP and the reconnects of today.
+- **Traffic**: 60-second chart, kept by the daemon so it is still there after a page reload. Drops show as gaps.
+- **Accounts**: the mode buttons (Manual, Fallback, Auto, Balance) and the latency test (bolt icon) above the account cards. The cards sit in up to three columns. The line on the left of a card shows the account type: SSH teal, SlowDNS purple, ZiVPN orange, VLESS blue, VMess indigo, Trojan pink. Click a card to switch **without Stop / Start**: the current tunnel keeps working until the new account is connected; if it fails, nothing changes. An account with **Show on Dashboard** off has no card, also while it runs.
+- **Ping on the cards** *(1.7.0)*: a real test. Each account logs in and opens the check URL through itself, so a dead, locked or expired account shows **failed** even when its server still answers. Accounts that are running show the ping of the live tunnel. With **Unified delay** (on by default, like OpenClash) the connection handshakes are left out and only the round trip counts, so the numbers are smaller and fair between SSH and Xray.
+- **Modems** *(more than one modem)*: each modem's IP and a Change IP button per modem.
+- **Balance** *(Balance mode only)*: its own row with the speed, share of traffic, ping and connections of each account.
 - **Recent log**: the latest log lines.
+
+### Connections tab *(1.7.0)*
+
+Every connection that goes through the tunnel right now, fastest first, refreshed every 2 seconds: **Device** (name from DHCP), **Site** (name from the tunnel DNS), **Account** it went out on, **Speed**, **Total** and **Time**. Filter by device, site or account; the left column counts the connections per account. The list is only made while the tab is open, so it costs nothing otherwise. When an Xray account runs alone (not Balance), the TUN goes straight to Xray: devices and sites are still shown, speed and total are not.
 
 ## 8. Profile selection: Manual, Fallback, Auto, Balance
 
@@ -165,7 +170,7 @@ Set in **Dashboard › Profiles** or **Settings › General › Profile selectio
 | Mode | How it works |
 |---|---|
 | **Manual** | Stays on the chosen profile. |
-| **Fallback** | Moves to the next profile after 3 failed reconnects. |
+| **Fallback** | Moves to the next profile after 3 failed reconnects. With *Fallback: go back to the chosen account* (on by default, 1.7.0) it goes back to the account you chose once a real login works again: checked every 5 minutes, at least 3 minutes after the move. |
 | **Auto** | Moves to a profile at least 20 ms faster (checked every 5 minutes). |
 | **Balance** *(1.6.0)* | Several accounts run at the same time and share the traffic. See the next section. |
 
@@ -278,9 +283,12 @@ Tip: end a prefix with a dot. `114.1` also matches 114.10.x to 114.19x.x, while 
 |---|---|
 | Start on boot | Connect when the router starts |
 | Profile selection | Manual / Fallback / Auto / Balance |
+| Fallback: go back to the chosen account *(1.7.0)* | See [section 8](#8-profile-selection-manual-fallback-auto-balance). On by default |
+| Block QUIC (UDP 443) *(1.7.0)* | Browsers and apps use TCP instead of QUIC/HTTP3. Can make video steadier when UDP goes through UDPGW or Xray over TCP. Games, calls and DNS are not touched. Off by default |
 | Balance: same account per site | See [section 9](#9-balance-adding-up-several-modems) |
 | Warn before expiry | A reminder 1, 3 or 7 days before an account ends |
 | Connection check URL | URL used to check the connection (default `http://cp.cloudflare.com/generate_204`) |
+| Unified delay *(1.7.0)* | Ping without the connection handshakes, like OpenClash. On by default |
 | Check every (seconds) | Time between checks (default 5 s) |
 | Failures before reconnect | Failed checks before a reconnect (default 3) |
 | Parallel SSH sessions | 1–4 SSH sessions at once for one account |
@@ -288,6 +296,10 @@ Tip: end a prefix with a dot. `114.1` also matches 114.10.x to 114.19x.x, while 
 ### Change IP
 
 See [section 10](#10-change-ip-and-several-modems).
+
+### Schedule *(1.7.0)*
+
+At a set time the tunnel uses another account or another mode, as if you clicked it. Each line: **Time**, **Days** (every day, Mon–Fri, Sat–Sun), **Action** (*Use account* or *Set mode*), the account or mode, and **On / Off**. Press **+ Add**, then **Save**; changes count without a restart. Example: 00:00 the night-quota account, 06:00 back to the main one. Schedules run while the tunnel is on, by the router clock.
 
 ### Network
 
@@ -301,7 +313,7 @@ See [section 10](#10-change-ip-and-several-modems).
 | Manage dnsmasq | dnsmasq is pointed at the tunnel DNS while connected and restored on Stop |
 | Indonesian IPs go direct | Local sites and games use your normal line instead of the tunnel (APNIC list for Indonesia). Works for every account type. |
 | Direct IPs / devices | IPs, CIDRs or devices that skip the tunnel, one per line |
-| Direct domains (Xray) | Domains that always go direct, such as banking apps |
+| Direct domains | Domains that leave straight through the modem, such as bank apps and games that block VPN IPs. One per line, subdomains included. Every account type *(1.7.0)*; SSH, SlowDNS and ZiVPN need DNS through the tunnel, and an app may need to be reopened after you add a domain |
 | Block ads (Xray) | A small ad and tracker block list |
 | SSH compatibility | Auto / Legacy / Modern only |
 
@@ -483,6 +495,7 @@ Do not run both in TUN mode. Set Tomato Tunnel to **SOCKS5 only**.
 | 1.3.1 | Only the Tomato Tunnel Xray build is used |
 | 1.4.0 | Telegram bot, Dashboard chart kept after reload |
 | 1.5.0 | Fix drops on old Dropbear, Xray TUN without the extra hop, benchmark |
+| 1.7.0 | New look on every tab that follows the LuCI theme, Connections tab, real ping with unified delay, Fallback goes back to the chosen account, Block QUIC, Direct domains for every account type, Schedule, account type colours, imported accounts saved at once |
 | 1.6.0 | Several modems, IP ranges for Change IP, Go out through per account, Balance mode (weight, UDP per flow, fastest main account), new payload tags (`[ip]`, `[proxy]`, `[ws_key]`, rotate/random, `*N`), banner as the header on every tab, banner upload fix |
 
 ---
