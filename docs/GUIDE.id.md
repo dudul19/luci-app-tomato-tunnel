@@ -497,8 +497,8 @@ Jangan dua-duanya di mode TUN. Set Tomato Tunnel ke **SOCKS5 only**.
 | 1.3.1 | Hanya memakai build Xray milik Tomato Tunnel |
 | 1.4.0 | Bot Telegram, grafik Dashboard tetap ada setelah reload |
 | 1.5.0 | Perbaikan putus di Dropbear lama, TUN langsung ke Xray, benchmark |
-| 1.7.0 | Tampilan baru di semua tab yang mengikuti tema LuCI, tab Connections, ping sungguhan dengan unified delay, Fallback kembali ke akun pilihan, Block QUIC, Direct domains untuk semua jenis akun, Schedule, warna per jenis akun, akun hasil import langsung tersimpan |
 | 1.6.0 | Multi modem, range IP Change IP, Go out through per akun, mode Balance (weight, UDP per aliran, akun utama tercepat), tag payload baru (`[ip]`, `[proxy]`, `[ws_key]`, rotate/random, `*N`), banner jadi header di semua tab, perbaikan upload banner |
+| 1.7.0 | Tampilan baru di semua tab yang mengikuti tema LuCI, tab Connections, ping sungguhan dengan unified delay, Fallback kembali ke akun pilihan, Block QUIC, Direct domains untuk semua jenis akun, Schedule, warna per jenis akun, akun hasil import langsung tersimpan |
 
 ---
 

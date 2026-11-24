@@ -495,8 +495,8 @@ Do not run both in TUN mode. Set Tomato Tunnel to **SOCKS5 only**.
 | 1.3.1 | Only the Tomato Tunnel Xray build is used |
 | 1.4.0 | Telegram bot, Dashboard chart kept after reload |
 | 1.5.0 | Fix drops on old Dropbear, Xray TUN without the extra hop, benchmark |
-| 1.7.0 | New look on every tab that follows the LuCI theme, Connections tab, real ping with unified delay, Fallback goes back to the chosen account, Block QUIC, Direct domains for every account type, Schedule, account type colours, imported accounts saved at once |
 | 1.6.0 | Several modems, IP ranges for Change IP, Go out through per account, Balance mode (weight, UDP per flow, fastest main account), new payload tags (`[ip]`, `[proxy]`, `[ws_key]`, rotate/random, `*N`), banner as the header on every tab, banner upload fix |
+| 1.7.0 | New look on every tab that follows the LuCI theme, Connections tab, real ping with unified delay, Fallback goes back to the chosen account, Block QUIC, Direct domains for every account type, Schedule, account type colours, imported accounts saved at once |
 
 ---
 
