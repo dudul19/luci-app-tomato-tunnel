@@ -639,7 +639,7 @@ func (c *Config) Find(id string) (Profile, bool) {
 // or late packet, which shows as a frozen video or "Something went wrong".
 // Repo is where updates and the Xray add-on come from. It cannot be changed in
 // the settings, so a router never installs a build from someone else's repo.
-const Repo = "dudul19/tomato-tunnel"
+const Repo = "dudul19/luci-app-tomato-tunnel"
 
 func quicMode(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {

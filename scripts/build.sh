@@ -28,7 +28,7 @@ XREL=2 # 1.7.2: ttxray -ctl (shared Xray for Balance)
 XSRC=third_party/xray-src
 XDESC="Xray core $XVER for Tomato Tunnel (VLESS, VMess, Trojan; TCP, WebSocket, HTTPUpgrade, gRPC, XHTTP; TLS, REALITY). Client-only build with allowInsecure kept. Optional add-on for luci-app-tomato-tunnel."
 WITH_XRAY=${WITH_XRAY:-1}
-URL="https://github.com/dudul19/tomato-tunnel"
+URL="https://github.com/dudul19/luci-app-tomato-tunnel"
 APK="${APK:-$(ls ../king3399-immortalwrt/immortalwrt-imagebuilder-*/staging_dir/host/bin/apk 2>/dev/null | head -1)}"
 
 OUT=dist

@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dudul19/tomato-tunnel/releases/latest"><img src="https://img.shields.io/github/v/release/dudul19/tomato-tunnel?color=ec185d" alt="release"></a>
+  <a href="https://github.com/dudul19/luci-app-tomato-tunnel/releases/latest"><img src="https://img.shields.io/github/v/release/dudul19/luci-app-tomato-tunnel?color=ec185d" alt="release"></a>
   <img src="https://img.shields.io/badge/license-GPL--3.0-555" alt="license GPL-3.0">
   <img src="https://img.shields.io/badge/OpenWrt%20%2F%20ImmortalWrt-555" alt="OpenWrt / ImmortalWrt">
 </p>
@@ -68,7 +68,7 @@ Dashboard (v1.7.0 shown, same look in v1.7.2) on ImmortalWrt with the router's o
 ## Install
 
 OpenWrt or ImmortalWrt 23.05 or newer. Download the file for your router from
-the [Releases](https://github.com/dudul19/tomato-tunnel/releases/latest) page,
+the [Releases](https://github.com/dudul19/luci-app-tomato-tunnel/releases/latest) page,
 copy it to `/tmp` and install it:
 
 ```sh

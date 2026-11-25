@@ -9,7 +9,7 @@
 var CTL = '/usr/libexec/tomato-tunnel/ctl';
 var CONF = 'tomato-tunnel';
 var TG = 'https://t.me/dudulrealnofek';
-var REPO = 'dudul19/tomato-tunnel'; // fixed, like the daemon (config.Repo)
+var REPO = 'dudul19/luci-app-tomato-tunnel'; // fixed, like the daemon (config.Repo)
 
 // LuCI's ui.addNotification() stays on screen until the user clicks Dismiss.
 // For transient "Saved… / Applied…" toasts that is just noise, so informational
