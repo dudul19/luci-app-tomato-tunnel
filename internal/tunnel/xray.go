@@ -53,6 +53,17 @@ var adDomains = []string{
 	"smaato.net", "startappservice.com", "ironsrc.mobi", "supersonicads.com", "yandexadexchange.net",
 }
 
+// xrayLive holds the PID of every Xray this process started and that has not
+// exited yet, so the daemon can tell its own running pools from leftovers.
+var xrayLive sync.Map
+
+// XrayLive reports whether pid is an Xray started by this process and still owned by a pool
+// (or by a connect in progress).
+func XrayLive(pid int) bool { _, ok := xrayLive.Load(pid); return ok }
+
+// IdleTCP is how long an idle TCP connection may stay open through Xray and the TUN.
+const IdleTCP = time.Hour
+
 type xrayProc struct {
 	cmd    *exec.Cmd
 	port   int
@@ -169,7 +180,10 @@ func XrayConfig(p config.Profile, port int, iface, serverIP string, o XrayOpts) 
 	}
 	switch p.XNet {
 	case "ws":
-		ws := map[string]any{"path": path}
+		// a WebSocket ping every 30 s: bug hosts and CDNs in front of the server
+		// close a WebSocket that is quiet for about 90 s, which cut push channels
+		// (FCM, WhatsApp) long before their next heartbeat
+		ws := map[string]any{"path": path, "heartbeatPeriod": 30}
 		if hostHdr != "" {
 			ws["host"] = hostHdr
 		}
@@ -258,6 +272,9 @@ func XrayConfig(p config.Profile, port int, iface, serverIP string, o XrayOpts) 
 		"log":       map[string]any{"loglevel": "warning"},
 		"inbounds":  []any{in},
 		"outbounds": outs,
+		// Xray closes a connection idle for 300 s by default, which cuts push
+		// channels (FCM, WhatsApp) between their heartbeats.
+		"policy": map[string]any{"levels": map[string]any{"0": map[string]any{"connIdle": int(IdleTCP.Seconds())}}},
 	}
 	if len(hosts) > 0 {
 		cfg["dns"] = map[string]any{"hosts": hosts, "servers": []string{"localhost"}}
@@ -325,6 +342,7 @@ func (p *Pool) connectXray(ctx context.Context) error {
 		os.Remove(conf)
 		return fmt.Errorf("start Xray: %v", err)
 	}
+	xrayLive.Store(cmd.Process.Pid, true)
 	go func() {
 		sc := bufio.NewScanner(out)
 		sc.Buffer(make([]byte, 64*1024), 64*1024)
@@ -336,6 +354,7 @@ func (p *Pool) connectXray(ctx context.Context) error {
 	}()
 	go func() {
 		cmd.Wait()
+		xrayLive.Delete(cmd.Process.Pid)
 		x.mu.Lock()
 		x.exited = true
 		x.mu.Unlock()
@@ -363,8 +382,15 @@ func (p *Pool) connectXray(ctx context.Context) error {
 		}
 	}
 	p.mu.Lock()
-	p.xr = x
+	closed := p.closed
+	if !closed {
+		p.xr = x
+	}
 	p.mu.Unlock()
+	if closed {
+		x.stop() // the pool was closed while Xray was starting: nobody would stop it later
+		return ErrNoSession
+	}
 	p.Log.Infof("xray", "Xray started (%s), connecting to %s:%d", filepath.Base(bin), pr.Host, pr.Port)
 
 	check := p.X.CheckURL

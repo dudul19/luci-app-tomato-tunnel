@@ -43,6 +43,8 @@ type balancer struct {
 	tcp      map[*tunnel.Pool]int64   // connections handed out and still open
 	udp      map[*tunnel.Pool]int64   // UDP flows handed out and still open
 	peak     map[*tunnel.Pool]float64 // decaying peak download rate, bytes/s
+	rrT, rrU map[*tunnel.Pool]float64 // weighted round-robin turns, TCP and UDP
+	ifDown   map[string]bool          // profile keys whose Go out through interface is down
 	rr       int
 	lastMain time.Time // last automatic change of the main account
 }
@@ -65,44 +67,31 @@ func (b *balancer) weight(p *tunnel.Pool) int64 {
 	return 1
 }
 
-// share is the effective weight: the Balance weight, scaled down for an
-// account that is much slower than the fastest one (SlowDNS next to a 4G+
-// modem, say), but never below 30 % so it keeps proving its speed.
-// Call with b.mu held.
-func (b *balancer) share(p *tunnel.Pool) float64 {
-	w := float64(b.weight(p))
-	var top float64
-	for _, v := range b.peak {
-		if v > top {
-			top = v
-		}
-	}
-	if top < 512*1024 {
-		return w // not busy enough to tell fast from slow
-	}
-	pk, ok := b.peak[p]
-	if !ok {
-		return w
-	}
-	f := pk / top
-	if f < 0.3 {
-		f = 0.3
-	}
-	return w * f
-}
+// share is the Balance weight. The speed a pool carries is not used: it shows
+// how many flows it was given and how it fares against the others on the same
+// modem, not what it could do alone, so scaling by it fed on itself (the pool
+// that got the first bytes got ever more flows). OpenClash's load-balance does
+// not weigh by speed either. Call with b.mu held.
+func (b *balancer) share(p *tunnel.Pool) float64 { return float64(b.weight(p)) }
 
-// pick returns the index of the candidate with the fewest handed-out flows
-// per unit of share. Call with b.mu held.
-func (b *balancer) pick(cs []*tunnel.Pool, count map[*tunnel.Pool]int64) int {
-	b.rr++
-	best, bestS := -1, 0.0
-	for j := range cs {
-		i := (j + b.rr) % len(cs)
-		sc := float64(count[cs[i]]+1) / b.share(cs[i])
-		if best < 0 || sc < bestS {
-			best, bestS = i, sc
+// pick returns the index of the next pool by smooth weighted round-robin
+// (the way nginx shares by weight): with weights 3 and 1 the order is
+// A A B A, and so on. Open connections are not counted: idle ones (push,
+// chat, music apps) carry nothing, and counting them sent every new
+// download to the account with the fewest idle ones, a slow phone modem
+// that had just reconnected say. rr keeps the turn state (one map for
+// TCP, one for UDP). Call with b.mu held.
+func (b *balancer) pick(cs []*tunnel.Pool, rr map[*tunnel.Pool]float64) int {
+	best, total := -1, 0.0
+	for i, p := range cs {
+		w := b.share(p)
+		rr[p] += w
+		total += w
+		if best < 0 || rr[p] > rr[cs[best]] {
+			best = i
 		}
 	}
+	rr[cs[best]] -= total
 	return best
 }
 
@@ -172,7 +161,8 @@ func newBalancer() *balancer {
 	return &balancer{pools: map[string]*tunnel.Pool{}, next: map[string]time.Time{}, fails: map[string]int{},
 		busy: map[string]bool{}, sticky: map[string]stick{}, base: map[*tunnel.Pool][2]int64{},
 		bad: map[string]int{}, ping: map[string]int64{}, weights: map[string]int{},
-		tcp: map[*tunnel.Pool]int64{}, miss: map[string]int{}, udp: map[*tunnel.Pool]int64{}, peak: map[*tunnel.Pool]float64{}}
+		tcp: map[*tunnel.Pool]int64{}, miss: map[string]int{}, udp: map[*tunnel.Pool]int64{}, peak: map[*tunnel.Pool]float64{},
+		rrT: map[*tunnel.Pool]float64{}, rrU: map[*tunnel.Pool]float64{}, ifDown: map[string]bool{}}
 }
 
 // ifaceDev turns an OpenWrt interface (wwan) into its device (wwan0). If the
@@ -249,6 +239,7 @@ func (d *Daemon) balanceLoop(ctx context.Context) {
 		for _, p := range d.balanceSet(c) {
 			want[ProfileKey(p)] = p
 		}
+		d.balanceIfaces()
 		b := d.bal
 		b.mu.Lock()
 		for _, p := range c.Profiles {
@@ -276,13 +267,76 @@ func (d *Daemon) balanceLoop(ctx context.Context) {
 			}
 		}
 		for k, p := range want {
-			if _, ok := b.pools[k]; ok || b.busy[k] || time.Now().Before(b.next[k]) {
+			if _, ok := b.pools[k]; ok || b.busy[k] || time.Now().Before(b.next[k]) || b.ifDown[k] {
 				continue
 			}
 			b.busy[k] = true
 			go d.balanceConnect(ctx, p)
 		}
 		b.mu.Unlock()
+	}
+}
+
+// balanceIfaces closes a Balance account at once when the interface it goes
+// out through (Go out through) is down, instead of waiting for 3 failed
+// checks (about 30 s). Its open connections end with it, so the devices open
+// new ones, which go to the accounts that still work. While the interface
+// stays down the account is not reconnected. A main account on a dead
+// interface is marked failing, so new connections skip it and Balance picks
+// another main account right away.
+func (d *Daemon) balanceIfaces() {
+	b := d.bal
+	b.mu.Lock()
+	type acct struct {
+		key, name, wan string
+		pool           *tunnel.Pool
+	}
+	var list []acct
+	for k, p := range b.pools {
+		if p.P.Wan != "" {
+			list = append(list, acct{k, p.P.Name, p.P.Wan, p})
+		}
+	}
+	wanted, names := map[string]string{}, map[string]string{}
+	for _, p := range d.cfg.Profiles {
+		if p.Wan != "" {
+			wanted[ProfileKey(p)], names[ProfileKey(p)] = p.Wan, p.Name
+		}
+	}
+	b.mu.Unlock()
+	if main := d.pool.Load(); main != nil && main.P.Wan != "" && !changeip.IfaceUp(main.P.Wan) {
+		if !d.mainBad.Swap(true) {
+			d.log.Warnf("balance", "%s: interface %s is down, moving new connections to the other accounts", main.P.Name, main.P.Wan)
+			go d.balanceMain()
+		}
+	}
+	down := map[string]bool{}
+	for k, wan := range wanted {
+		if !changeip.IfaceUp(wan) {
+			down[k] = true
+		}
+	}
+	b.mu.Lock()
+	var stop []*tunnel.Pool
+	for _, a := range list {
+		if down[a.key] && b.pools[a.key] == a.pool {
+			delete(b.pools, a.key)
+			delete(b.base, a.pool)
+			delete(b.miss, a.key)
+			stop = append(stop, a.pool)
+			d.log.Warnf("balance", "%s: interface %s is down, closing its connections", a.name, a.wan)
+		}
+	}
+	for k := range b.ifDown {
+		if !down[k] {
+			d.log.Infof("balance", "%s: interface %s is up again, reconnecting", names[k], wanted[k])
+			b.next[k], b.fails[k] = time.Time{}, 0
+		}
+	}
+	b.ifDown = down
+	b.mu.Unlock()
+	for _, p := range stop {
+		go p.Close()
 	}
 }
 
@@ -316,6 +370,13 @@ func (d *Daemon) balanceConnect(ctx context.Context, p config.Profile) {
 	defer b.mu.Unlock()
 	b.busy[k] = false
 	if !d.balancing() || ctx.Err() != nil {
+		np.Close()
+		return
+	}
+	if _, dup := b.pools[k]; dup {
+		// the old main account came back into Balance (balGive) while this
+		// one was connecting: keep that one and close the new session, else
+		// it would be dropped from the map with its Xray still running
 		np.Close()
 		return
 	}
@@ -391,10 +452,11 @@ func (d *Daemon) balGive(p *tunnel.Pool) bool {
 	return true
 }
 
-// balanceMain makes the fastest account the main one. Busy: the one with
-// the highest download rate, if it beats the main one by half. Quiet: the
-// lowest ping, if 150 ms better. A main account that fails its checks is
-// replaced right away by the best healthy one.
+// balanceMain picks the main account by ping: when the link is quiet, the
+// lowest ping if 150 ms better than the main one. A main account that fails
+// its checks is replaced right away by the healthy one with the best ping.
+// Traffic rates are not compared (see share), and pings taken while the link
+// is busy are not trusted, so nothing changes in the middle of a download.
 func (d *Daemon) balanceMain() {
 	main := d.pool.Load()
 	if main == nil {
@@ -418,19 +480,26 @@ func (d *Daemon) balanceMain() {
 		top = max(top, v)
 	}
 	busy := top >= 1024*1024
+	if busy && !bad {
+		b.mu.Unlock()
+		return
+	}
 	best, why := "", ""
-	var bestPeak float64
 	bestPing := int64(-1)
 	for k, p := range b.pools {
 		if !p.Alive() || b.bad[k] > 0 {
 			continue
 		}
-		if busy {
-			if pk := b.peak[p]; pk > bestPeak {
-				best, bestPeak = k, pk
-			}
-		} else if ms := b.ping[k]; ms > 0 && (bestPing < 0 || ms < bestPing) {
+		if ms := b.ping[k]; ms > 0 && (bestPing < 0 || ms < bestPing) {
 			best, bestPing = k, ms
+		}
+	}
+	if best == "" && bad {
+		for k, p := range b.pools { // no ping yet: any healthy one beats a failing main
+			if p.Alive() && b.bad[k] == 0 {
+				best = k
+				break
+			}
 		}
 	}
 	name := func(k string) string {
@@ -443,9 +512,7 @@ func (d *Daemon) balanceMain() {
 	case best == "":
 	case bad:
 		why = fmt.Sprintf("Balance: %s fails its checks, %s takes over as main. ", main.P.Name, name(best))
-	case busy && bestPeak > 1.5*b.peak[main]:
-		why = fmt.Sprintf("Balance: %s is faster (%.1f vs %.1f Mbps), making it the main account. ", name(best), bestPeak*8/1e6, b.peak[main]*8/1e6)
-	case !busy && bestPing > 0 && (mainPing <= 0 || bestPing+150 < mainPing):
+	case bestPing > 0 && (mainPing <= 0 || bestPing+150 < mainPing):
 		why = fmt.Sprintf("Balance: %s answers faster (%d vs %d ms), making it the main account. ", name(best), bestPing, mainPing)
 	}
 	if why == "" {
@@ -562,7 +629,7 @@ func (d *Daemon) balanceDial(main *tunnel.Pool, addr string) (net.Conn, bool, er
 		}
 	}
 	if first < 0 {
-		first = b.pick(cs, b.tcp)
+		first = b.pick(cs, b.rrT)
 	}
 	if len(b.sticky) > 4096 {
 		for h, st := range b.sticky {
@@ -623,7 +690,7 @@ func (d *Daemon) balanceUDP(main *tunnel.Pool, onPacket func(src *net.UDPAddr, d
 		b.mu.Unlock()
 		return nil, false
 	}
-	first := b.pick(cs, b.udp)
+	first := b.pick(cs, b.rrU)
 	order := append([]*tunnel.Pool{cs[first]}, append(append([]*tunnel.Pool{}, cs[:first]...), cs[first+1:]...)...)
 	b.mu.Unlock()
 	for _, p := range order {
@@ -725,6 +792,13 @@ func (d *Daemon) balanceRates(main *tunnel.Pool, mainRX, mainTX int64) (rx, tx i
 	for p := range b.peak {
 		if !live[p] {
 			delete(b.peak, p)
+		}
+	}
+	for _, rr := range []map[*tunnel.Pool]float64{b.rrT, b.rrU} {
+		for p := range rr {
+			if !live[p] {
+				delete(rr, p)
+			}
 		}
 	}
 	for p, n := range b.tcp {

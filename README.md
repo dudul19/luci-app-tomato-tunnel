@@ -26,7 +26,7 @@ feature, setting and payload tag is explained there.
 
 ![Dashboard](docs/screenshots/dashboard-v1.7.0.png)
 
-Dashboard of v1.7.0 on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
+Dashboard (v1.7.0 shown, same look in v1.7.1) on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
 
 ## Features
 
@@ -42,18 +42,20 @@ Dashboard of v1.7.0 on ImmortalWrt with the router's own LuCI theme, accounts in
 - **Real ping**: each account logs in and opens the check URL through itself,
   so a dead or locked account shows failed. Unified delay like OpenClash.
 - **Connections** tab: every connection with its device, site, account and
-  speed.
+  speed, filtered per account with one click, one card per connection on a
+  phone.
 - **Profile selection**: Manual, Fallback (goes back to your chosen account
   once it works again), Auto (fastest) and **Balance**:
   several accounts at once, each on its own modem, so the speed of the modems
-  adds up. Weight per account, UDP shared per flow, the fastest account
-  becomes the main one by itself.
+  adds up. Weight per account, UDP shared per flow, the account with the best
+  ping becomes the main one by itself.
 - **Change IP** for one or several modems: restart interface, AT command,
   ModemManager, HiLink / Orbit or an Android phone over ADB. Can keep trying
   until the IP is in your ranges (`10.0-10.19`, CIDR or prefix).
 - **Usage** per day, account and device, with a quota warning. Account
   expiry reminders.
-- **Schedule**: change the account or the mode at set times.
+- **Schedule**: change the account or the mode at set times, or keep the
+  tunnel off (or on only) in a time window, also after a reboot.
 - **Telegram bot**: control, alerts and a daily report, English or Bahasa
   Indonesia.
 - Indonesian IPs and chosen domains go direct for every account type, Block
@@ -67,8 +69,8 @@ the [Releases](https://github.com/dudul19/tomato-tunnel/releases/latest) page,
 copy it to `/tmp` and install it:
 
 ```sh
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.apk   # OpenWrt 25.x and newer
-opkg install /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.1_aarch64_generic.apk   # OpenWrt 25.x and newer
+opkg install /tmp/luci-app-tomato-tunnel_1.7.1_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
 ```
 
 Then open LuCI › Services › Tomato Tunnel. Xray accounts need the Xray add-on:
@@ -77,10 +79,10 @@ full setup are in the [guide](docs/GUIDE.md#2-requirements).
 
 ## Performance
 
-![CPU and RAM, SSH vs Xray](docs/benchmark.svg)
+![CPU and RAM: SSH, Xray and Balance](docs/benchmark.svg)
 
 Measured on a King3399 (RK3399, 6 cores, 2 GB), ImmortalWrt, TUN mode. 100%
-means one CPU core. Idle, everything together uses under 4% of one core.
+means one CPU core. Idle, everything together uses under 2% of one core.
 Balance mode costs more CPU because all traffic passes through
 `tomato-tunnel` to be shared; numbers in the [guide](docs/GUIDE.md#17-cpu-and-ram).
 
@@ -92,7 +94,9 @@ APK=/path/to/apk scripts/build.sh
 
 Output goes to `dist/`. The `apk` tool (apk-tools 3) comes with any OpenWrt 25.x
 SDK or ImageBuilder in `staging_dir/host/bin/apk`. You also need Go 1.27 or
-newer, `git`, `fakeroot` and `unshare`.
+newer, `git`, `fakeroot` and `unshare`. The build works in `$TMPDIR`; point it
+at a disk folder (`TMPDIR=~/.cache/tt-build`) when `/tmp` is a small tmpfs.
+`ARCHS="aarch64_generic"` builds one architecture only.
 
 The Xray add-on is built from Xray-core v26.11.9 (cloned into
 `third_party/xray-src/core`) with `third_party/xray-src/tomato.patch` (newer

@@ -304,6 +304,7 @@ func Run(cfgPath string, foreground bool) error {
 	go d.scheduleLoop(ctx)
 	go d.modemStatus()
 	go d.balanceLoop(ctx)
+	go reapXrayLoop(ctx, d.log)
 	if cfg.Main.UpdateCheck {
 		go d.updateLoop(ctx)
 	}
@@ -425,6 +426,12 @@ func (d *Daemon) retargetHev() {
 	}
 	exec.Command(NetScript, "routes").Run()
 }
+
+// IdleTCP is how long an idle TCP connection is kept through the tunnel
+// (hev and Xray both default to 5 minutes). Push channels such as Google FCM
+// (WhatsApp notifications) send a heartbeat only every 15 to 28 minutes, so
+// 5 minutes cut them and notifications came late.
+const IdleTCP = tunnel.IdleTCP
 
 func (d *Daemon) stopHev() {
 	if d.hev == nil || d.hev.Process == nil {
@@ -1063,7 +1070,8 @@ socks5:
 misc:
   log-level: warn
   limit-nofile: 65535
-`, TunName, port, host)
+  tcp-read-write-timeout: %d
+`, TunName, port, host, IdleTCP.Milliseconds())
 	if err := os.WriteFile(conf, []byte(yml), 0600); err != nil {
 		return err
 	}

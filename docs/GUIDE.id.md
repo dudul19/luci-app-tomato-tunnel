@@ -2,7 +2,7 @@
 
 [English](GUIDE.md) · **Bahasa Indonesia**
 
-Panduan lengkap semua fitur Tomato Tunnel sampai **versi 1.7.0**: apa fungsinya, di mana tempatnya, dan cara memakainya.
+Panduan lengkap semua fitur Tomato Tunnel sampai **versi 1.7.1**: apa fungsinya, di mana tempatnya, dan cara memakainya.
 
 Nama menu dan tombol ditulis dalam bahasa Inggris, sama seperti yang tampil di LuCI.
 
@@ -62,10 +62,10 @@ opkg print-architecture  # OpenWrt 23.05 dan 24.10
 
    ```sh
    # OpenWrt 25.x dan lebih baru (apk)
-   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.apk
+   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.1_aarch64_generic.apk
 
    # OpenWrt 23.05 dan 24.10 (opkg)
-   opkg install /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.ipk
+   opkg install /tmp/luci-app-tomato-tunnel_1.7.1_aarch64_generic.ipk
    ```
 
 3. Buka LuCI, lalu **Services › Tomato Tunnel**.
@@ -163,7 +163,7 @@ Tampilan baru di 1.7.0: setiap bagian berupa baris dengan judul di kiri, dan war
 
 ### Tab Connections *(1.7.0)*
 
-Semua koneksi yang sedang lewat tunnel, yang tercepat di atas, diperbarui setiap 2 detik: **Device** (nama dari DHCP), **Site** (nama dari DNS tunnel), **Account** yang dipakai, **Speed**, **Total**, dan **Time**. Bisa difilter berdasarkan perangkat, situs, atau akun; kolom kiri menghitung koneksi per akun. Daftar hanya dibuat selama tab ini dibuka, jadi tidak membebani router di luar itu. Kalau akun Xray jalan sendiri (bukan Balance), TUN langsung masuk ke Xray: perangkat dan situs tetap tampil, speed dan total tidak.
+Semua koneksi yang sedang lewat tunnel, yang tercepat di atas, diperbarui setiap 2 detik: **Device** (nama dari DHCP), **Site** (nama dari DNS tunnel), **Account** yang dipakai, **Speed**, **Total**, dan **Time**. Bisa difilter berdasarkan perangkat, situs, atau akun; kotak di kiri menghitung koneksi per akun, dan klik salah satunya untuk menampilkan akun itu saja *(1.7.1)*. Di HP setiap koneksi tampil sebagai satu kartu. Daftar hanya dibuat selama tab ini dibuka, jadi tidak membebani router di luar itu. Kalau akun Xray jalan sendiri (bukan Balance), TUN langsung masuk ke Xray: perangkat dan situs tetap tampil, speed dan total tidak.
 
 ## 8. Pemilihan profil: Manual, Fallback, Auto, Balance
 
@@ -198,11 +198,11 @@ Cek di **Status › Routes**: harus ada satu baris `default` untuk setiap modem.
 
 ### Cara pembagian
 
-- Setiap koneksi baru diberikan ke akun dengan koneksi paling sedikit, dibanding jatahnya (**weight**).
-- **Speed nyata tiap akun diukur.** Akun yang jauh lebih lambat (misalnya SlowDNS) otomatis mendapat lebih sedikit koneksi, tapi minimal 30% dari jatah weight-nya. Saat trafik sepi, pengukuran ini diabaikan.
+- Koneksi baru dibagi bergiliran sesuai **weight** *(1.7.1)*: dengan weight 3 dan 1 urutannya A, A, B, A, dan seterusnya. Koneksi yang sudah terbuka tidak dihitung, karena koneksi diam (chat, push, aplikasi musik) tidak membawa trafik.
+- **Jatah koneksi hanya ditentukan weight** *(1.7.1)*, seperti load-balance OpenClash. Speed yang lewat di akun tidak dipakai, karena tergantung berapa koneksi yang ia dapat dan akun lain di modem yang sama, dan dulu malah mendorong trafik ke akun yang salah. Beri akun yang lebih lambat (misalnya SlowDNS) weight lebih kecil dari akun yang cepat.
 - **UDP** (YouTube QUIC, game, call) juga dibagi per aliran. Setiap aliran tetap di satu akun sampai selesai. Akun yang bisa membawa UDP: Xray, ZiVPN, dan SSH yang punya UDPGW.
-- **Akun utama otomatis yang tercepat.** Setiap 30 detik Tomato Tunnel mengecek. Saat ramai, akun dengan speed minimal 1,5× akun utama jadi utama. Saat sepi, akun dengan ping 150 ms lebih rendah jadi utama. Kalau akun utama gagal ping, langsung diganti. Perpindahan biasa paling cepat sekali per 3 menit, dan sesi yang sudah jalan dipakai ulang tanpa reconnect.
-- **Kalau satu akun mati**: setelah satu kali gagal ping, akun itu berhenti menerima koneksi baru. Setelah 3 kali gagal, akun dilepas dan dicoba sambung ulang setiap 10–60 detik. Begitu hidup lagi, otomatis ikut dibagi lagi. Kalau modemnya yang mati, semua akun di modem itu ikut mati, dan trafik pindah ke modem lain.
+- **Akun utama otomatis yang ping-nya terbaik.** Setiap 30 detik Tomato Tunnel mengecek. Saat sepi, akun dengan ping 150 ms lebih rendah jadi utama; saat ramai tidak ada perpindahan *(1.7.1)*. Kalau akun utama gagal ping, langsung diganti. Perpindahan biasa paling cepat sekali per 3 menit, dan sesi yang sudah jalan dipakai ulang tanpa reconnect.
+- **Kalau satu akun mati**: setelah satu kali gagal ping, akun itu berhenti menerima koneksi baru. Setelah 3 kali gagal, akun dilepas dan dicoba sambung ulang setiap 10–60 detik. Begitu hidup lagi, otomatis ikut dibagi lagi. Kalau modemnya yang mati (interface-nya down), semua akun di modem itu ditutup dalam sekitar 5 detik *(1.7.1)*, sehingga download yang sedang berjalan di situ langsung diulang lewat modem lain dan tidak menggantung setengah menit. Begitu interface hidup lagi, akun-akun itu tersambung sendiri.
 
 ### Pengaturan tambahan
 
@@ -224,10 +224,33 @@ Balance juga bisa dipakai dengan satu modem saja. Semua akun cukup diisi **Go ou
 
 - **Speed bertambah** kalau yang membatasi adalah server atau akun: server membatasi speed per akun, sedang padat di jam ramai, atau lokasinya jauh.
 - **Speed tidak bertambah** kalau modemnya sendiri sudah mentok. Akun tambahan hanya membagi kapasitas yang sama.
-- **Yang tetap didapat:** cadangan tanpa putus (kalau satu server down, trafik langsung pindah tanpa jeda reconnect), akun utama otomatis yang tercepat, dan beban tersebar ke beberapa server.
+- **Yang tetap didapat:** cadangan tanpa putus (kalau satu server down, trafik langsung pindah tanpa jeda reconnect), akun utama otomatis yang ping-nya terbaik, dan beban tersebar ke beberapa server.
 - **Harganya:** sekitar 40 MB RAM per akun Xray, dan CPU sedikit lebih tinggi.
 
 Cara mengetahui berguna atau tidak: jalankan speedtest multi-thread di mode **Manual** dengan satu akun, lalu di mode **Balance** dengan semua akun, sebaiknya juga di jam ramai. Kalau hasil Balance jelas lebih tinggi, Balance berguna di tempatmu.
+
+**Contoh (1.7.1).** King3399, ImmortalWrt, mode TUN, semua akun keluar lewat WAN yang sama, dua akun Xray Trojan WS TLS di server berbeda (A dan B), Speedtest by Ookla CLI dari PC di LAN lewat Wi-Fi, server yang sama (Jakarta) di setiap tes, jam sepi (05.00). Setiap angka adalah satu kali tes.
+
+| Mode | Download (Mbps) | Upload (Mbps) |
+|---|---|---|
+| Manual, akun A | 145 · 152 · 143 | ~53 |
+| Manual, akun B | ~113 ¹ | – |
+| Balance sebelum 1.7.1 | 110 · 123 | ~53 |
+| Balance 1.7.1, weight A 1 · B 1 | 152 · 164 · 161 | ~54 |
+| Balance 1.7.1, weight A 3 · B 1 | 180 · 149 · 169 | ~51 |
+
+¹ Diukur dengan 8 unduhan paralel dari speed.cloudflare.com, bukan Ookla.
+
+Sebelum 1.7.1, Balance menilai akun dari trafik yang lewat, sehingga akun B yang lebih lambat jadi akun utama dan membawa sebagian besar trafik. Mulai 1.7.1 hanya weight yang menentukan. Hasil di tempatmu tergantung modem, server, dan jam: tes juga di jam ramai.
+
+**Contoh dengan dua modem (1.7.1).** Router yang sama, akun A di modem USB, akun B di HP lewat USB tethering, Speedtest by Ookla (Jakarta) dan 8 download paralel dari server speedtest.
+
+| Mode | Download | Upload (Ookla) |
+|---|---|---|
+| Manual, akun A di modem | ~95 Mbps (8 download) · 132–141 Mbps (Ookla) | 50–54 Mbps |
+| Balance, weight A 1 · B 1 | 122 Mbps (8 download: modem 95 + HP 27) · 109–119 Mbps (Ookla) | 95–106 Mbps |
+
+Upload jadi dua kali lipat; tes banyak download bertambah sebesar speed HP; download Ookla tidak bertambah di sini. Saat HP dicabut di tengah download, akunnya ditutup dalam satu detik dan download lanjut lewat modem.
 
 ## 10. Change IP dan multi modem
 
@@ -299,7 +322,34 @@ Lihat [bagian 10](#10-change-ip-dan-multi-modem).
 
 ### Schedule *(1.7.0)*
 
-Pada jam tertentu tunnel memakai akun lain atau mode lain, sama seperti kalau kamu klik sendiri. Setiap baris berisi **Time**, **Days** (setiap hari, Senin–Jumat, Sabtu–Minggu), **Action** (*Use account* atau *Set mode*), akun atau modenya, dan **On / Off**. Tekan **+ Add**, lalu **Save**; perubahan berlaku tanpa restart. Contoh: 00:00 pakai akun kuota malam, 06:00 kembali ke akun utama. Jadwal hanya jalan selama tunnel menyala, memakai jam router.
+Pada jam tertentu tunnel memakai akun lain atau mode lain, sama seperti kalau kamu klik sendiri. Setiap baris berisi **Time**, **Days** (setiap hari, Senin–Jumat, Sabtu–Minggu, atau satu hari tertentu), **Action** (*Use account* atau *Set mode*), akun atau modenya, dan **On / Off**. Tekan **+ Add**, lalu **Save**; perubahan berlaku tanpa restart. Contoh: 00:00 pakai akun kuota malam, 06:00 kembali ke akun utama. Jadwal hanya jalan selama tunnel menyala, memakai jam router.
+
+**Tunnel on/off** *(1.7.1)*: pilih aksi **Tunnel on/off**, lalu **Off** atau **On only** dan jam selesai (**until**).
+- **Off** membuat tunnel mati di rentang itu, misalnya 01:00 until 06:00: jam 01:00 tunnel berhenti, jam 06:00 menyala lagi.
+- **On only** membuat tunnel hanya menyala di rentang itu dan mati di luarnya.
+- Rentang boleh melewati tengah malam (23:00 until 02:00); kalau hari dipilih, rentang dimulai di hari itu.
+- Jadwal ini dijalankan cron router, jadi tetap jalan walau tunnel sedang mati. Kalau router menyala di dalam rentang mati, tunnel tetap mati sampai rentangnya selesai. Tombol **Start** di Dashboard tetap bisa dipakai kapan saja.
+
+**Contoh pemakaian**
+
+| Tujuan | Time | Days | Action | Account / mode / tunnel |
+|---|---|---|---|---|
+| Akun kuota malam saat malam, akun utama saat siang | 00:00 | Every day | Use account | Akun malam |
+| | 06:00 | Every day | Use account | Akun utama |
+| Tunnel mati saat semua tidur (hemat kuota) | 01:00 | Every day | Tunnel on/off | Off until 06:00 |
+| Tunnel hanya di jam kantor | 08:00 | Mon–Fri | Tunnel on/off | On only until 17:00 |
+| Balance saat ramai malam, setelahnya Manual | 19:00 | Every day | Set mode | Balance |
+| | 23:00 | Every day | Set mode | Manual |
+| Akun lain di akhir pekan | 00:00 | Sat–Sun | Use account | Akun akhir pekan |
+| | 00:00 | Mon–Fri | Use account | Akun utama |
+| Mati Jumat malam sampai lewat tengah malam | 23:00 | Fri | Tunnel on/off | Off until 02:00 |
+
+Perlu diketahui:
+- Ganti akun atau mode butuh dua baris: satu untuk pindah, satu untuk kembali. Rentang tunnel cukup satu baris dengan jam selesainya.
+- Selama rentang tunnel membuat tunnel mati, jadwal akun dan mode di rentang itu tidak berpengaruh. Akun atau mode terakhir yang dipilih dipakai saat tunnel menyala lagi.
+- Dengan rentang **On only**, tunnel mati di luar rentang, termasuk setelah reboot. Hapus barisnya, atau ubah kolom Status jadi **Off**, untuk kembali menyala terus.
+- Cek dulu jam dan zona waktu router (**System › System**): semua jadwal mengikuti jam itu.
+
 
 ### Network
 
@@ -308,7 +358,7 @@ Pada jam tertentu tunnel memakai akun lain atau mode lain, sama seperti kalau ka
 | Traffic mode | **TUN** (disarankan, TCP + UDP), **TCP redirect**, atau **SOCKS5 only** (untuk OpenClash / PassWall) |
 | SOCKS5 port / listen | Port dan alamat SOCKS5 (default `127.0.0.1:1080`) |
 | Outgoing interface | Interface keluar untuk semua akun yang Go out through-nya Auto. Auto = route biasa. |
-| DNS through the tunnel | DNS lewat tunnel (DNS over TCP) atau DNS ISP |
+| DNS through the tunnel | DNS lewat tunnel (DNS over TCP) atau DNS ISP. Mulai 1.7.1 dua koneksi ke server DNS tetap terbuka dan dipakai semua pertanyaan, jadi satu pencarian cukup sekali bolak-balik (terukur sekitar 40–50 ms; sebelum 1.7.1 sekitar 220 ms karena setiap pertanyaan membuka koneksi tunnel baru) |
 | DNS server | Server DNS di ujung tunnel (default `1.1.1.1`) |
 | Manage dnsmasq | dnsmasq diarahkan ke DNS tunnel saat tersambung, dan dikembalikan saat Stop |
 | Indonesian IPs go direct | Situs dan game lokal lewat jalur biasa, tidak lewat tunnel (daftar APNIC Indonesia). Berlaku untuk semua jenis akun. |
@@ -451,13 +501,13 @@ GET / HTTP/1.1[crlf]Host: [bug][crlf]Upgrade: websocket[crlf][crlf][rotate]CONNE
 
 ## 17. CPU dan RAM
 
-Diukur di King3399 (RK3399, 6 core, RAM 2 GB) dengan ImmortalWrt mode TUN. CPU 100% berarti satu core penuh.
+Diukur di King3399 (RK3399, 6 core, RAM 2 GB) dengan ImmortalWrt mode TUN, Tomato Tunnel 1.7.1, 25 November 2026. CPU 100% berarti satu core penuh. Beban: 8 download atau upload sekaligus dari PC di LAN; CPU dan RAM `tomato-tunnel`, `xray`, dan `hev-socks5-tunnel` dijumlahkan, dibaca setiap detik dari `/proc`.
 
-| Kondisi | tomato-tunnel | xray (per akun Xray) |
-|---|---|---|
-| Diam | ~0%, ~36 MB | ~1%, ~38 MB |
-| Satu akun Xray, ~60 Mbps (1.5.0) | ~0% (TUN langsung ke Xray) | — |
-| Balance, ~80 Mbps (1.6.0) | ~30% | ~50% |
+| Kondisi | CPU diam | RAM diam | CPU download | CPU upload |
+|---|---|---|---|---|
+| Manual, SSH + TLS | 0,7% | 20 MB | 139% di 117 Mbps | 41% di 59 Mbps |
+| Manual, Xray Trojan WS TLS | 1,3% | 70 MB | 113% di 90 Mbps | 37% di 59 Mbps |
+| Balance, 2 akun Xray (modem + HP) | 1,8% | 100 MB | 162% di 122 Mbps | 90% di 120 Mbps |
 
 - Di mode **Balance**, semua trafik lewat `tomato-tunnel` dulu supaya bisa dibagi, jadi CPU-nya naik dibanding mode biasa.
 - RAM: setiap akun **Xray** di Balance menambah sekitar **40 MB**, karena menjalankan proses Xray sendiri. Akun **SSH** dan **ZiVPN** hanya menambah beberapa MB.
@@ -480,6 +530,12 @@ Kartu akun menampilkan "Login failed": akun terkunci, habis, atau password salah
 **Server SSH lama (Dropbear) putus-putus.**
 Set **SSH compatibility** ke Auto (default) atau Legacy.
 
+**"Could not save: … uci/commit … Access denied" (sering di OpenWrt 24.10).**
+Ada perubahan LuCI lain (misalnya di Network) yang sudah di-Apply dan masih menunggu konfirmasi, atau login LuCI sudah habis. Mulai 1.7.1 Save menunggu sampai perubahan itu dikonfirmasi atau di-rollback, dan memberi tahu kalau login habis. Di versi lama: konfirmasi atau revert perubahan yang tertunda (pojok kanan atas LuCI), atau logout lalu login lagi, kemudian tekan Save.
+
+**Notifikasi WhatsApp (atau aplikasi lain) telat.**
+Sebelum 1.7.1, tunnel menutup koneksi TCP yang diam 5 menit (default hev dan Xray). Jalur push seperti Google FCM hanya mengirim heartbeat setiap 15–28 menit, jadi HP baru sadar koneksinya putus saat heartbeat berikutnya. Mulai 1.7.1 koneksi TCP yang diam disimpan sampai 1 jam, dan akun Xray WebSocket mengirim ping kecil setiap 30 detik, karena bug host dan CDN di depan server menutup WebSocket yang diam sekitar 90 detik (hasil ukur: sebelum 1.7.1 koneksi diam putus antara 75 dan 100 detik, dengan 1.7.1 masih hidup setelah 7 menit). Pindah akun, menyalakan/mematikan Balance, atau reconnect tetap memutus semua koneksi sekali; HP menyambung lagi saat heartbeat berikutnya.
+
 **OpenClash atau PassWall bentrok.**
 Jangan dua-duanya di mode TUN. Set Tomato Tunnel ke **SOCKS5 only**.
 
@@ -497,6 +553,7 @@ Jangan dua-duanya di mode TUN. Set Tomato Tunnel ke **SOCKS5 only**.
 | 1.5.0 | Perbaikan putus di Dropbear lama, TUN langsung ke Xray, benchmark |
 | 1.6.0 | Multi modem, range IP Change IP, Go out through per akun, mode Balance (weight, UDP per aliran, akun utama tercepat), tag payload baru (`[ip]`, `[proxy]`, `[ws_key]`, rotate/random, `*N`), banner jadi header di semua tab, perbaikan upload banner |
 | 1.7.0 | Tampilan baru di semua tab yang mengikuti tema LuCI, tab Connections, ping sungguhan dengan unified delay, Fallback kembali ke akun pilihan, Block QUIC, Direct domains untuk semua jenis akun, Schedule, warna per jenis akun, akun hasil import langsung tersimpan |
+| 1.7.1 | Schedule: matikan atau nyalakan tunnel di rentang waktu (misalnya 01:00–06:00), tetap jalan saat tunnel mati dan setelah reboot; DNS lewat tunnel sekitar 5× lebih cepat (koneksi tetap, ~45 ms bukan ~220 ms); Balance: akun di modem yang mati ditutup dalam ~5 detik (download pindah ke modem lain); koneksi TCP yang diam disimpan 1 jam, bukan 5 menit, dan ping WebSocket setiap 30 detik untuk Xray WS (notifikasi WhatsApp telat); Balance: koneksi baru bergiliran sesuai weight (koneksi diam tidak lagi memengaruhi), jatah koneksi hanya mengikuti weight dan akun utama tidak lagi diganti berdasarkan trafik yang lewat (bisa menjadikan akun yang lebih lambat sebagai utama); proses Xray yang tertinggal (tidak dipakai akun mana pun) dihentikan otomatis; banner tidak lagi sempat memenuhi layar saat halaman dibuka; perbaikan "Could not save: Access denied" (OpenWrt 24.10): Save menunggu jika ada Apply LuCI lain yang belum dikonfirmasi dan memberi tahu jika login habis; Save yang gagal tidak lagi me-restart atau mengganti tunnel; pairing bot tidak lagi menghapus isian yang belum disimpan; baris Bypass yang tidak valid dilewati; SlowDNS: memilih "Custom…" di DNS resolver tidak lagi kembali ke 1.1.1.1; Connections: kotak filter per akun, satu kartu per koneksi di HP; notifikasi "Saved…" hilang sendiri setelah beberapa detik (warning dan error tetap) |
 
 ---
 

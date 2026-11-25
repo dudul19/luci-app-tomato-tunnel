@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dudul19/tomato-tunnel/internal/bot"
@@ -139,6 +141,15 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println(code)
+	case "schedule-sync":
+		os.Exit(scheduleSync())
+	case "schedule-state":
+		c, err := config.Load(config.DefaultPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println(config.TunnelWanted(c, time.Now()))
 	case "version", "-v", "--version":
 		fmt.Println(version)
 	default:
@@ -324,4 +335,39 @@ func doUpdate(cmd string) int {
 	}
 	usage()
 	return 2
+}
+
+// scheduleSync writes the tunnel on/off windows of Settings › Schedule into
+// root's crontab (lines ending in config.CronMark), replacing the old ones,
+// and restarts cron when they changed.
+func scheduleSync() int {
+	c, err := config.Load(config.DefaultPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	const tab = "/etc/crontabs/root"
+	old, _ := os.ReadFile(tab)
+	var keep []string
+	for _, l := range strings.Split(strings.TrimRight(string(old), "\n"), "\n") {
+		if l != "" && !strings.HasSuffix(l, config.CronMark) {
+			keep = append(keep, l)
+		}
+	}
+	lines := config.TunnelCron(c, daemon.CtlPath)
+	next := strings.Join(append(keep, lines...), "\n")
+	if next != "" {
+		next += "\n"
+	}
+	if next != string(old) {
+		os.MkdirAll("/etc/crontabs", 0755)
+		if err := os.WriteFile(tab, []byte(next), 0600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		exec.Command("/etc/init.d/cron", "enable").Run()
+		exec.Command("/etc/init.d/cron", "restart").Run()
+	}
+	fmt.Printf("ok %d\n", len(lines)/2)
+	return 0
 }

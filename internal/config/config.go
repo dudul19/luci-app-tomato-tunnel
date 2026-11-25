@@ -159,10 +159,12 @@ type Config struct {
 }
 
 // Schedule: at Time (HH:MM) on Days, use an account (Action "account",
-// Value = profile ID) or a profile selection mode (Action "policy").
+// Value = profile ID), a profile selection mode (Action "policy"), or keep
+// the tunnel off or on from Time to End (Action "tunnel", Value "off"/"on").
 type Schedule struct {
 	ID      string
 	Time    string
+	End     string // Action "tunnel": end of the window (HH:MM)
 	Days    string // daily, weekdays, weekend, or mon,tue,…
 	Action  string
 	Value   string
@@ -171,7 +173,7 @@ type Schedule struct {
 
 // Due says whether the schedule fires at t (same minute, matching day).
 func (s Schedule) Due(t time.Time) bool {
-	if !s.Enabled || s.Value == "" || t.Format("15:04") != s.Time {
+	if !s.Enabled || s.Value == "" || s.Action == "tunnel" || t.Format("15:04") != s.Time {
 		return false
 	}
 	wd := t.Weekday()
@@ -251,7 +253,7 @@ func FromSections(ss []*uci.Section) (*Config, error) {
 			}
 		case "schedule":
 			c.Schedules = append(c.Schedules, Schedule{ID: s.Name, Time: strings.TrimSpace(s.Get("time", "")), Days: s.Get("days", "daily"),
-				Action: s.Get("action", "account"), Value: s.Get("value", ""), Enabled: s.Get("enabled", "1") != "0"})
+				Action: s.Get("action", "account"), Value: s.Get("value", ""), End: strings.TrimSpace(s.Get("end", "")), Enabled: s.Get("enabled", "1") != "0"})
 		case "profile":
 			p := readProfile(s)
 			if p.Order == 0 {
@@ -358,11 +360,27 @@ func readMain(m *Main, s *uci.Section) {
 		}
 	}
 	for _, v := range s.Lists["bypass"] {
-		v = strings.TrimSpace(strings.SplitN(v, "#", 2)[0])
-		if v != "" {
+		if v = bypassEntry(v); v != "" {
 			m.Bypass = append(m.Bypass, v)
 		}
 	}
+}
+
+// bypassEntry keeps one "direct" line only when it is an IP or CIDR. The list goes
+// into ip rules and an nft set, where a single typo would make the whole set fail to
+// load (redirect mode then cannot start), so anything else is dropped.
+func bypassEntry(v string) string {
+	v = strings.TrimSpace(strings.SplitN(v, "#", 2)[0])
+	if v == "" {
+		return ""
+	}
+	if _, n, err := net.ParseCIDR(v); err == nil {
+		return n.String()
+	}
+	if ip := net.ParseIP(v); ip != nil {
+		return ip.String()
+	}
+	return ""
 }
 
 var reDash = regexp.MustCompile(`\s*-\s*`)

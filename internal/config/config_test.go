@@ -131,3 +131,20 @@ config modem 'off'
 		t.Fatal("lookup")
 	}
 }
+
+func TestBypassEntry(t *testing.T) {
+	for in, want := range map[string]string{
+		"1.2.3.4":            "1.2.3.4",
+		" 10.0.0.5/8 # lan ": "10.0.0.0/8",
+		"2001:db8::1":        "2001:db8::1",
+		"2001:db8::/32":      "2001:db8::/32",
+		"example.com":        "",
+		"1.2.3.4-1.2.3.9":    "",
+		"1.2.3.4; flush":     "",
+		"# only a comment":   "",
+	} {
+		if got := bypassEntry(in); got != want {
+			t.Errorf("bypassEntry(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

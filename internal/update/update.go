@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -256,7 +257,7 @@ func installPkg(cl *http.Client, r *Result, name string, w io.Writer) error {
 		return fmt.Errorf("release v%s has no sha256sums.txt, refusing to install", r.Latest)
 	}
 	fmt.Fprintf(w, "downloading %s\n", pkg.Name)
-	dst := "/tmp/" + pkg.Name
+	dst := "/tmp/" + filepath.Base(pkg.Name)
 	sum, err := download(cl, pkg.URL, dst)
 	if err != nil {
 		return err

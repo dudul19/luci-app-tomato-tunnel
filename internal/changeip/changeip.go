@@ -147,6 +147,26 @@ func IfaceDevice(iface string) string {
 	return st.Dev
 }
 
+// IfaceUp reports whether the OpenWrt interface is up. An interface that
+// netifd does not know (a plain device name, no ifstatus) counts as up, so
+// only a real "down" stops anything.
+func IfaceUp(iface string) bool {
+	if iface == "" {
+		return true
+	}
+	out, err := exec.Command("ifstatus", iface).Output()
+	if err != nil {
+		return true
+	}
+	var st struct {
+		Up *bool `json:"up"`
+	}
+	if json.Unmarshal(out, &st) != nil || st.Up == nil {
+		return true
+	}
+	return *st.Up
+}
+
 func orDash(s string) string {
 	if s == "" {
 		return "unknown"

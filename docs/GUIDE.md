@@ -2,7 +2,7 @@
 
 **English** · [Bahasa Indonesia](GUIDE.id.md)
 
-Every Tomato Tunnel feature up to **version 1.7.0**: what it does, where it is, and how to use it.
+Every Tomato Tunnel feature up to **version 1.7.1**: what it does, where it is, and how to use it.
 
 ## Contents
 
@@ -60,10 +60,10 @@ opkg print-architecture  # OpenWrt 23.05 and 24.10
 
    ```sh
    # OpenWrt 25.x and newer (apk)
-   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.apk
+   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.1_aarch64_generic.apk
 
    # OpenWrt 23.05 and 24.10 (opkg)
-   opkg install /tmp/luci-app-tomato-tunnel_1.7.0_aarch64_generic.ipk
+   opkg install /tmp/luci-app-tomato-tunnel_1.7.1_aarch64_generic.ipk
    ```
 
 3. Open LuCI and go to **Services › Tomato Tunnel**.
@@ -161,7 +161,7 @@ The page has a new look in 1.7.0: every part is a row with its title on the left
 
 ### Connections tab *(1.7.0)*
 
-Every connection that goes through the tunnel right now, fastest first, refreshed every 2 seconds: **Device** (name from DHCP), **Site** (name from the tunnel DNS), **Account** it went out on, **Speed**, **Total** and **Time**. Filter by device, site or account; the left column counts the connections per account. The list is only made while the tab is open, so it costs nothing otherwise. When an Xray account runs alone (not Balance), the TUN goes straight to Xray: devices and sites are still shown, speed and total are not.
+Every connection that goes through the tunnel right now, fastest first, refreshed every 2 seconds: **Device** (name from DHCP), **Site** (name from the tunnel DNS), **Account** it went out on, **Speed**, **Total** and **Time**. Filter by device, site or account; the boxes on the left count the connections per account, and a click on one shows only that account *(1.7.1)*. On a phone every connection is one card. The list is only made while the tab is open, so it costs nothing otherwise. When an Xray account runs alone (not Balance), the TUN goes straight to Xray: devices and sites are still shown, speed and total are not.
 
 ## 8. Profile selection: Manual, Fallback, Auto, Balance
 
@@ -196,11 +196,11 @@ Check **Status › Routes**: there must be one `default` line per modem. With th
 
 ### How the traffic is shared
 
-- Every new connection goes to the account with the fewest connections for its share (**weight**).
-- **The real speed of each account is measured.** An account that is much slower (SlowDNS, say) gets fewer connections, but never less than 30 % of its weight. When traffic is light this is ignored.
+- New connections take turns by **weight** *(1.7.1)*: with weights 3 and 1 the order is A, A, B, A, and so on. Connections already open are not counted, because idle ones (chat, push, music apps) carry no traffic.
+- **Only the weight decides the share** *(1.7.1)*, like OpenClash's load-balance. The speed an account carries is not used: it depends on how many connections it was given and on the other accounts on the same modem, so it used to push traffic onto the wrong account. Give a slower account (SlowDNS, say) a lower weight than the fast one.
 - **UDP** (YouTube QUIC, games, calls) is shared per flow too. Each flow stays on one account until it ends. Accounts that carry UDP: Xray, ZiVPN and SSH with UDPGW.
-- **The fastest account becomes the main one by itself.** Every 30 seconds Tomato Tunnel checks. When busy, an account with at least 1.5× the speed of the main one takes over; when quiet, one with a ping 150 ms lower. If the main account fails its checks it is replaced right away. Normal changes happen at most once every 3 minutes, and the running session is reused, so nothing reconnects.
-- **When an account dies:** after one failed check it gets no new connections. After 3 failed checks it is dropped and reconnected every 10–60 seconds, and it shares the traffic again as soon as it is back. If the modem itself dies, every account on it goes down and the traffic moves to the other modem.
+- **The account with the best ping becomes the main one by itself.** Every 30 seconds Tomato Tunnel checks. When the link is quiet, an account with a ping 150 ms lower takes over; while it is busy nothing changes *(1.7.1)*. If the main account fails its checks it is replaced right away. Normal changes happen at most once every 3 minutes, and the running session is reused, so nothing reconnects.
+- **When an account dies:** after one failed check it gets no new connections. After 3 failed checks it is dropped and reconnected every 10–60 seconds, and it shares the traffic again as soon as it is back. If the modem itself dies (its interface goes down), every account on it is closed within about 5 seconds *(1.7.1)*, so downloads that were running on it start again on the other modem instead of hanging for half a minute; when the interface is up again the accounts reconnect by themselves.
 
 ### Extra setting
 
@@ -222,10 +222,33 @@ Balance also works with only one modem. Leave every account on **Go out through 
 
 - **Faster** when the server or the account is the limit: a speed cap per account, a busy server at peak hours, or a server far away.
 - **Not faster** when the modem itself is maxed out. More accounts only share the same capacity.
-- **Still useful:** a spare with no gap (if one server goes down, traffic moves at once, without a reconnect), the fastest account as the main one, and the load spread over several servers.
+- **Still useful:** a spare with no gap (if one server goes down, traffic moves at once, without a reconnect), the account with the best ping as the main one, and the load spread over several servers.
 - **The cost:** about 40 MB of RAM per Xray account, and a little more CPU.
 
 To find out: run a multi-connection speed test in **Manual** mode with one account, then in **Balance** with every account, ideally at peak hours too. If Balance is clearly faster, it pays off for you.
+
+**Example (1.7.1).** King3399, ImmortalWrt, TUN mode, every account out through the same WAN, two Xray Trojan WS TLS accounts on different servers (A and B), Speedtest by Ookla CLI from a LAN PC over Wi-Fi, same server (Jakarta) every run, quiet hours (05:00). Each number is one run.
+
+| Mode | Download (Mbps) | Upload (Mbps) |
+|---|---|---|
+| Manual, account A | 145 · 152 · 143 | ~53 |
+| Manual, account B | ~113 ¹ | – |
+| Balance before 1.7.1 | 110 · 123 | ~53 |
+| Balance 1.7.1, weight A 1 · B 1 | 152 · 164 · 161 | ~54 |
+| Balance 1.7.1, weight A 3 · B 1 | 180 · 149 · 169 | ~51 |
+
+¹ Measured with 8 parallel downloads from speed.cloudflare.com, not Ookla.
+
+Before 1.7.1 Balance judged the accounts by the traffic they carried, so the slower account B became the main one and took most of the traffic. Since 1.7.1 only the weight decides. Your numbers depend on your modem, servers and time of day: test at peak hours too.
+
+**Example with two modems (1.7.1).** Same router, account A on a USB modem, account B on a phone over USB tethering, Speedtest by Ookla (Jakarta) and 8 parallel downloads from a speed test server.
+
+| Mode | Download | Upload (Ookla) |
+|---|---|---|
+| Manual, account A on the modem | ~95 Mbps (8 downloads) · 132–141 Mbps (Ookla) | 50–54 Mbps |
+| Balance, weight A 1 · B 1 | 122 Mbps (8 downloads: modem 95 + phone 27) · 109–119 Mbps (Ookla) | 95–106 Mbps |
+
+Upload doubled; the many-download test added the phone's speed; Ookla's download did not gain here. When the phone was unplugged during a download, its account was closed within a second and the downloads went on over the modem.
 
 ## 10. Change IP and several modems
 
@@ -297,7 +320,34 @@ See [section 10](#10-change-ip-and-several-modems).
 
 ### Schedule *(1.7.0)*
 
-At a set time the tunnel uses another account or another mode, as if you clicked it. Each line: **Time**, **Days** (every day, Mon–Fri, Sat–Sun), **Action** (*Use account* or *Set mode*), the account or mode, and **On / Off**. Press **+ Add**, then **Save**; changes count without a restart. Example: 00:00 the night-quota account, 06:00 back to the main one. Schedules run while the tunnel is on, by the router clock.
+At a set time the tunnel uses another account or another mode, as if you clicked it. Each line: **Time**, **Days** (every day, Mon–Fri, Sat–Sun or one day of the week), **Action** (*Use account* or *Set mode*), the account or mode, and **On / Off**. Press **+ Add**, then **Save**; changes count without a restart. Example: 00:00 the night-quota account, 06:00 back to the main one. Schedules run while the tunnel is on, by the router clock.
+
+**Tunnel on/off** *(1.7.1)*: choose the action **Tunnel on/off**, then **Off** or **On only** and an end time (**until**).
+- **Off** keeps the tunnel off in that window, for example 01:00 until 06:00: at 01:00 it stops, at 06:00 it starts again.
+- **On only** keeps the tunnel on just in that window and off outside it.
+- A window may cross midnight (23:00 until 02:00); with chosen days it starts on those days.
+- These windows run through the router's cron, so they also work while the tunnel is stopped. If the router starts inside an off window, the tunnel stays off until the window ends. **Start** on the Dashboard still works at any time.
+
+**Examples**
+
+| What you want | Time | Days | Action | Account / mode / tunnel |
+|---|---|---|---|---|
+| Night-quota account at night, main account by day | 00:00 | Every day | Use account | Night account |
+| | 06:00 | Every day | Use account | Main account |
+| Tunnel off while everyone sleeps (saves quota) | 01:00 | Every day | Tunnel on/off | Off until 06:00 |
+| Tunnel only in office hours | 08:00 | Mon–Fri | Tunnel on/off | On only until 17:00 |
+| Balance in the busy evening, Manual afterwards | 19:00 | Every day | Set mode | Balance |
+| | 23:00 | Every day | Set mode | Manual |
+| Another account at the weekend | 00:00 | Sat–Sun | Use account | Weekend account |
+| | 00:00 | Mon–Fri | Use account | Main account |
+| Off on Friday night across midnight | 23:00 | Fri | Tunnel on/off | Off until 02:00 |
+
+Good to know:
+- An account or mode change needs two lines: one to switch, one to switch back. A tunnel window is one line with its end time.
+- While a tunnel window keeps the tunnel off, account and mode schedules in that window do nothing. The last account or mode chosen is used when the tunnel starts again.
+- With an **On only** window the tunnel is off outside it, also after a reboot. Remove the line, or set it to **Off** in the Status column, to go back to always on.
+- Check the router clock and time zone (**System › System**) first: every schedule follows it.
+
 
 ### Network
 
@@ -306,7 +356,7 @@ At a set time the tunnel uses another account or another mode, as if you clicked
 | Traffic mode | **TUN** (recommended, TCP + UDP), **TCP redirect**, or **SOCKS5 only** (for OpenClash / PassWall) |
 | SOCKS5 port / listen | SOCKS5 port and address (default `127.0.0.1:1080`) |
 | Outgoing interface | The way out for every account set to Go out through = Auto. Auto = normal routing. |
-| DNS through the tunnel | DNS through the tunnel (DNS over TCP) or the ISP's DNS |
+| DNS through the tunnel | DNS through the tunnel (DNS over TCP) or the ISP's DNS. Since 1.7.1 two connections to the DNS server stay open and carry every query, so a lookup takes one round trip (about 40–50 ms measured, before 1.7.1 about 220 ms because every query opened a new tunnel connection) |
 | DNS server | DNS server at the far end of the tunnel (default `1.1.1.1`) |
 | Manage dnsmasq | dnsmasq is pointed at the tunnel DNS while connected and restored on Stop |
 | Indonesian IPs go direct | Local sites and games use your normal line instead of the tunnel (APNIC list for Indonesia). Works for every account type. |
@@ -449,13 +499,13 @@ GET / HTTP/1.1[crlf]Host: [bug][crlf]Upgrade: websocket[crlf][crlf][rotate]CONNE
 
 ## 17. CPU and RAM
 
-Measured on a King3399 (RK3399, 6 cores, 2 GB) running ImmortalWrt in TUN mode. 100 % CPU means one core fully busy.
+Measured on a King3399 (RK3399, 6 cores, 2 GB) running ImmortalWrt in TUN mode, Tomato Tunnel 1.7.1, 25 November 2026. 100 % CPU means one core fully busy. Load: 8 downloads or uploads at once from a PC on the LAN; CPU and RAM of `tomato-tunnel`, `xray` and `hev-socks5-tunnel` together, read every second from `/proc`.
 
-| Situation | tomato-tunnel | xray (per Xray account) |
-|---|---|---|
-| Idle | ~0 %, ~36 MB | ~1 %, ~38 MB |
-| One Xray account, ~60 Mbps (1.5.0) | ~0 % (TUN goes straight to Xray) | — |
-| Balance, ~80 Mbps (1.6.0) | ~30 % | ~50 % |
+| Situation | CPU idle | RAM idle | CPU download | CPU upload |
+|---|---|---|---|---|
+| Manual, SSH + TLS | 0.7 % | 20 MB | 139 % at 117 Mbps | 41 % at 59 Mbps |
+| Manual, Xray Trojan WS TLS | 1.3 % | 70 MB | 113 % at 90 Mbps | 37 % at 59 Mbps |
+| Balance, 2 Xray accounts (modem + phone) | 1.8 % | 100 MB | 162 % at 122 Mbps | 90 % at 120 Mbps |
 
 - In **Balance** mode all traffic goes through `tomato-tunnel` first so it can be shared, so its CPU use is higher than in the other modes.
 - RAM: each **Xray** account in Balance adds about **40 MB**, because it runs its own Xray process. **SSH** and **ZiVPN** accounts add only a few MB.
@@ -478,6 +528,12 @@ Its card shows "Login failed": the account is locked, expired, or the password i
 **An old SSH server (Dropbear) keeps dropping.**
 Set **SSH compatibility** to Auto (default) or Legacy.
 
+**"Could not save: … uci/commit … Access denied" (often on OpenWrt 24.10).**
+Another LuCI change (for example in Network) was applied and is still waiting for its confirmation, or your LuCI login has expired. Since 1.7.1 Save waits until that change is confirmed or rolled back and tells you when the login has expired. On older versions: confirm or revert the pending change (top right of LuCI), or log out and in again, then press Save.
+
+**WhatsApp (or other) notifications arrive late.**
+Before 1.7.1 the tunnel closed a TCP connection after 5 idle minutes (hev and Xray defaults). Push channels such as Google FCM send a heartbeat only every 15 to 28 minutes, so the phone noticed only at its next heartbeat. Since 1.7.1 idle TCP connections are kept for 1 hour, and Xray WebSocket accounts send a small ping every 30 seconds, because bug hosts and CDNs in front of the server close a quiet WebSocket after about 90 seconds (measured: before 1.7.1 an idle connection died between 75 and 100 s, with 1.7.1 it was still alive after 7 minutes). A switch of account, Balance on/off or a reconnect still closes every connection once; the phone reconnects at its next heartbeat.
+
 **OpenClash or PassWall conflicts.**
 Do not run both in TUN mode. Set Tomato Tunnel to **SOCKS5 only**.
 
@@ -495,6 +551,7 @@ Do not run both in TUN mode. Set Tomato Tunnel to **SOCKS5 only**.
 | 1.5.0 | Fix drops on old Dropbear, Xray TUN without the extra hop, benchmark |
 | 1.6.0 | Several modems, IP ranges for Change IP, Go out through per account, Balance mode (weight, UDP per flow, fastest main account), new payload tags (`[ip]`, `[proxy]`, `[ws_key]`, rotate/random, `*N`), banner as the header on every tab, banner upload fix |
 | 1.7.0 | New look on every tab that follows the LuCI theme, Connections tab, real ping with unified delay, Fallback goes back to the chosen account, Block QUIC, Direct domains for every account type, Schedule, account type colours, imported accounts saved at once |
+| 1.7.1 | Schedule: turn the tunnel off or on in a time window (for example 01:00–06:00), also while it is stopped and after a reboot; DNS through the tunnel about 5× faster (kept connections, ~45 ms instead of ~220 ms); Balance: accounts on a modem that goes down are closed within ~5 s (downloads move to the other modem); idle TCP connections kept for 1 hour instead of 5 minutes and a WebSocket ping every 30 s for Xray WS (late WhatsApp notifications); Balance: new connections take turns by weight (idle connections no longer steer them), the share follows the weight only and the main account is no longer changed by the traffic it carries (it could make the slower account the main one); leftover Xray processes (used by no account) are stopped automatically; the banner no longer fills the screen while the page loads; fix "Could not save: Access denied" (OpenWrt 24.10): Save waits while another LuCI Apply is pending and says when the login has expired; a failed save no longer restarts or switches the tunnel; bot pairing no longer wipes unsaved edits; invalid Bypass lines are skipped; SlowDNS: choosing "Custom…" as DNS resolver no longer jumps back to 1.1.1.1; Connections: per-account filter boxes, one card per connection on phones; "Saved…" notices close by themselves after a few seconds (warnings and errors stay) |
 
 ---
 

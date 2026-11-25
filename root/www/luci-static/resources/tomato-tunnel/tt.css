@@ -623,11 +623,30 @@ svg.tt-wm { background: transparent !important; }
 .tt-chead { font-size: 12px; font-weight: 600; opacity: .7; }
 .tt-cproto { font-size: 10.5px; padding: 0 .35em; border: 1px solid var(--tt-ln); opacity: .8; font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
 .tt-cnote { margin: 0 0 .6em; }
+/* 1.7.1: per-account summary as chips that filter the list */
+.tt-csum { flex-direction: row; flex-wrap: wrap; gap: .4em; margin-top: .2em; }
+.tt-cchip { display: inline-flex; align-items: center; gap: .5em; font: inherit; font-size: 12.5px; color: inherit; cursor: pointer; padding: .3em .7em; border: 1px solid var(--tt-ln); background: transparent; border-radius: var(--tt-crad, 0); line-height: 1.4; }
+.tt-cchip strong { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; font-size: 12px; opacity: .85; }
+.tt-cchip:hover { border-color: var(--tt-acc); }
+.tt-cchip.on { border-color: var(--tt-acc); background: var(--tt-soft); }
+.tt-cchip:focus-visible { outline: 2px solid var(--tt-acc); outline-offset: 1px; }
+.tt-cspd .tt-dl, .tt-cspd .tt-ul { white-space: nowrap; }
+/* 1.7.1: phones and narrow windows: one card per connection */
 @media (max-width: 860px) {
 	.tt-chead { display: none; }
-	.tt-crow { grid-template-columns: minmax(0, 1fr) auto; gap: .15em .8em; padding: .6em 0; }
-	.tt-crow .tt-csite { grid-column: 1 / -1; order: -1; font-weight: 600; }
-	.tt-crow > span:nth-child(5), .tt-crow > span:nth-child(6) { display: none; }
+	.tt-clist { border-top: 0; }
+	.tt-crow {
+		grid-template-columns: minmax(0, 1fr) auto auto;
+		grid-template-areas: "site site site" "dev spd spd" "acc tot age";
+		gap: .25em .9em; padding: .7em .1em; font-size: 12.5px;
+	}
+	.tt-crow .tt-csite { grid-area: site; font-weight: 600; font-size: 13.5px; }
+	.tt-crow .tt-cdev { grid-area: dev; }
+	.tt-crow .tt-cacc { grid-area: acc; opacity: .7; }
+	.tt-crow .tt-cspd { grid-area: spd; justify-self: end; }
+	.tt-crow .tt-ctot { grid-area: tot; justify-self: end; opacity: .8; }
+	.tt-crow .tt-cage { grid-area: age; justify-self: end; }
+	.tt-crow .tt-cacc::before { content: "via "; opacity: .8; }
 }
 /* 1.7.0: Dashboard accounts in two columns; each one a compact block (name + ping, protocol, server, state) */
 .tt-d .tt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; column-gap: 1.2em; border-top: 0; }
@@ -695,3 +714,14 @@ svg.tt-wm { background: transparent !important; }
 }
 .tt-schr { grid-template-columns: 9.5em minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) 5.5em auto; }
 @media (max-width: 760px) { .tt-schr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+/* 1.7.1: schedule tunnel window: Off/On only + until time in one cell */
+.tt-schwin { display: flex; align-items: center; gap: .5em; flex-wrap: wrap; min-width: 0; }
+.tt-schwin select { flex: 0 1 auto; width: auto; }
+.tt-schwin input[type=time] { flex: 0 1 7.5em; width: 7.5em; }
+
+/* Schedule "Tunnel on/off": Off/On + until + time on ONE line (the row-wide width:100% rule pushed "until" down) */
+.tt-schr .tt-schwin { flex-wrap: nowrap; }
+.tt-schr .tt-schwin select { flex: 1 1 auto; width: auto !important; min-width: 4.5em; }
+.tt-schr .tt-schwin > span { flex: 0 0 auto; white-space: nowrap; }
+.tt-schr .tt-schwin input[type=time] { flex: 0 0 9.5em; width: 9.5em !important; }
+@media (max-width: 760px) { .tt-schr .tt-schwin { grid-column: 1 / -1; } }
