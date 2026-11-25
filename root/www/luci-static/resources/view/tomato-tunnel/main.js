@@ -9,6 +9,7 @@
 var CTL = '/usr/libexec/tomato-tunnel/ctl';
 var CONF = 'tomato-tunnel';
 var TG = 'https://t.me/dudulrealnofek';
+var REPO = 'dudul19/tomato-tunnel'; // fixed, like the daemon (config.Repo)
 
 // LuCI's ui.addNotification() stays on screen until the user clicks Dismiss.
 // For transient "Saved… / Applied…" toasts that is just noise, so informational
@@ -206,7 +207,7 @@ function niceLabel(d) {
 	if (k === 'xray') return 'Xray · ' + xrayLabel(d);
 	return layerLabel(L);
 }
-var RESTART_KEYS = [ 'net_mode', 'socks_port', 'socks_listen', 'wan_iface', 'dns_mode', 'dns_server', 'manage_dnsmasq', 'bypass', 'bypass_id', 'block_ads', 'direct_domain', 'ssh_compat', 'check_url', 'unified_delay', 'block_quic', 'check_interval', 'check_fail', 'sessions', 'log_level' ];
+var RESTART_KEYS = [ 'net_mode', 'socks_port', 'socks_listen', 'wan_iface', 'dns_mode', 'dns_server', 'manage_dnsmasq', 'bypass', 'bypass_id', 'block_ads', 'direct_domain', 'ssh_compat', 'check_url', 'unified_delay', 'block_quic', 'tailscale', 'check_interval', 'check_fail', 'sessions', 'log_level' ];
 var PROFILE_KEYS = [ 'name', 'type', 'use_payload', 'use_tls', 'use_slowdns', 'enhanced', 'insecure', 'host', 'port', 'user', 'pass', 'bug', 'ua', 'payload', 'proxy', 'udpgw', 'split_delay', 'dns_domain', 'dns_resolver', 'dns_pubkey', 'dns_type', 'expires', 'dashboard', 'wan', 'balance', 'balance_weight',
 	'x_proto', 'uuid', 'x_net', 'x_path', 'x_host', 'x_service', 'x_mode', 'x_flow', 'x_sec', 'sni', 'fp', 'pbk', 'sid', 'spx', 'vcn', 'pcs' ];
 function onDash(p) { return p.dashboard !== '0'; }
@@ -429,7 +430,8 @@ function logText(text, max) {
 }
 
 // Adds the stylesheet to <head> once and resolves when it has loaded (or failed, or
-// after 4 s), so the page never waits forever on a slow router.
+// after 1.5 s: tt.css is ~50 KB from the router, and some phone browsers never
+// report the load, which held the first view for the whole wait).
 function loadCss(href) {
 	var el = document.getElementById('tt-css');
 	if (el && el.getAttribute('href') === href) return el._ready || Promise.resolve();
@@ -437,7 +439,7 @@ function loadCss(href) {
 	el = E('link', { 'id': 'tt-css', 'rel': 'stylesheet', 'href': href });
 	el._ready = new Promise(function(done) {
 		el.onload = el.onerror = function() { done(); };
-		setTimeout(done, 4000);
+		setTimeout(done, 1500);
 	});
 	document.head.appendChild(el);
 	return el._ready;
@@ -445,8 +447,9 @@ function loadCss(href) {
 
 return view.extend({
 	load: function() {
-		return ctl([ 'normalize' ]).then(function() { return Promise.all([
-			uci.load(CONF),
+		// normalize must finish before the config is read; the rest starts at once
+		return Promise.all([
+			ctl([ 'normalize' ]).then(function() { return uci.load(CONF); }),
 			ctlJSON([ 'status' ]),
 			ctlJSON([ 'update-cached' ]),
 			ctl([ 'version' ]),
@@ -458,11 +461,11 @@ return view.extend({
 			ctl([ 'wanlist' ]).then(function(t) {
 				(t || '').split('\n').forEach(function(l) { var f = l.trim().split(/\s+/); if (f[0] && f[1]) L3[f[0]] = f[1]; });
 			}).catch(function() {})
-		]); }).then(function(data) {
+		]).then(function(data) {
 			// Load tt.css before the first render. A <link> inside the view only starts
 			// loading once the page is drawn, and until then the banner art and wordmark
 			// (SVGs without a size) stretch over the whole screen.
-			return loadCss(L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent((data[3] || '').trim()) + '-58').then(function() { return data; });
+			return loadCss(L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent((data[3] || '').trim()) + '-61').then(function() { return data; });
 		});
 	},
 
@@ -612,11 +615,11 @@ return view.extend({
 					E('div', { 'class': 'tt-state' }, [ E('span', { 'class': 'tt-dotst tt-muted' }), E('span', { 'class': 'tt-muted' }, 'Not set up yet') ]),
 					E('div', { 'class': 'tt-sub2' }, 'No account yet. Add one and press Start.')
 				]) ]),
-				trow('Get started', 'Three steps and your whole network goes through the tunnel.', [], [
+				trow('Get started', 'Three steps to tunnel your whole network.', [], [
 				E('ol', { 'class': 'tt-steps' }, [
-					step(1, true, 'Add your account', 'SSH, SlowDNS, ZiVPN or Xray from your seller. Or paste the account message or a vless:// link.'),
+					step(1, true, 'Add your account', 'From your seller, or paste the account message / vless:// link.'),
 					step(2, false, 'Press Start', 'The log shows each step while it connects.'),
-					step(3, false, 'Turn on Start on boot', 'Settings › General, so it connects by itself after a restart.')
+					step(3, false, 'Turn on Start on boot', 'Settings › General, to connect after a restart.')
 				]),
 				E('div', { 'class': 'tt-actions' }, [
 					button('Add account', 'add', function() { self.show('accounts'); self.newProfile(); }),
@@ -643,9 +646,9 @@ return view.extend({
 		r.big = E('span', { 'class': 'tt-bign' }, '—');
 		r.bigSub = E('div', { 'class': 'tt-bigs' });
 		r.modemBox = E('div');
-		r.modemRow = trow('Modems', 'Change the IP of each modem.', [], [ r.modemBox ]);
+		r.modemRow = trow('Modems', 'Change IP per modem.', [], [ r.modemBox ]);
 		r.modemRow.style.display = 'none';
-		r.balRow = trow('Balance', 'Live share of each account. Shown only in Balance mode.', [], [ r.balBox ]);
+		r.balRow = trow('Balance', 'Traffic per account.', [], [ r.balBox ]);
 		r.balRow.style.display = 'none';
 
 		r.polEl = E('div', { 'class': 'tt-seg tt-pol', 'role': 'group', 'aria-label': 'Profile selection' });
@@ -659,12 +662,12 @@ return view.extend({
 			E('div', { 'class': 'tt-head' }, [ E('div', { 'class': 'tt-hl' }, [ r.stateEl, r.subEl ]), r.acts ]),
 			r.swBox,
 			r.noteBox,
-			trow('Status', 'Live speed through the tunnel. Refreshes every 2 seconds.', [], [
+			trow('Status', 'Live speed.', [], [
 				E('div', { 'class': 'tt-bigw' }, [ E('div', { 'class': 'tt-bigl' }, [ r.big, E('span', { 'class': 'tt-muted' }, 'download') ]), r.bigSub ]),
 				E('div', { 'class': 'tt-stats' }, [ stat('Downloaded', 'dl'), stat('Uploaded', 'ul'), stat('Ping', 'ping', 'tt-okc'), stat('Today', 'today') ]),
 				r.det
 			]),
-			trow('Traffic', 'Download and upload, last 60 seconds.', [
+			trow('Traffic', 'Last 60 seconds.', [
 				E('div', { 'class': 'tt-legend' }, [ E('span', {}, [ E('i', { 'class': 'tt-lgd' }), 'Download' ]), E('span', {}, [ E('i', { 'class': 'tt-lgu' }), 'Upload' ]) ])
 			], [ E('div', { 'class': 'tt-chart' }, [ r.chart ]) ]),
 			trow('Accounts', '', [ r.polHint ], [ E('div', { 'class': 'tt-acctbar' }, [ r.polEl, r.testBtn ]), r.grid ]),
@@ -915,10 +918,10 @@ return view.extend({
 
 		var POL = [ [ 'manual', 'Manual' ], [ 'fallback', 'Fallback' ], [ 'auto', 'Auto' ], [ 'balance', 'Balance' ] ];
 		var HINT = {
-			manual: 'Manual: stays on the chosen profile.',
-			fallback: 'Fallback: next profile when the current one fails.',
-			auto: 'Auto: moves to a faster profile (checked every 5 min).',
-			balance: 'Balance: ticked accounts run together and share the traffic. Click a card to tick or untick.'
+			manual: 'Stays on one account.',
+			fallback: 'Next account when one fails.',
+			auto: 'Fastest account, checked every 5 min.',
+			balance: 'Ticked cards share the traffic.'
 		};
 		r.polEl.innerHTML = '';
 		POL.forEach(function(o) {
@@ -933,14 +936,14 @@ return view.extend({
 		r.polHint.textContent = HINT[pol];
 
 		r.grid.innerHTML = '';
-		if (!ps.length) { r.grid.appendChild(E('em', {}, 'No profiles yet. Add one in the Accounts tab.')); return; }
-		if (!ps.some(onDash)) { r.grid.appendChild(E('em', { 'class': 'tt-muted' }, 'Every account is hidden from the Dashboard. Turn on "Show on Dashboard" in the Accounts tab.')); }
+		if (!ps.length) { r.grid.appendChild(E('em', {}, 'No accounts yet. Add one in Accounts.')); return; }
+		if (!ps.some(onDash)) { r.grid.appendChild(E('em', { 'class': 'tt-muted' }, 'All hidden. Turn on "Show on Dashboard" in Accounts.')); }
 		// "Show on Dashboard" off always hides the card, also for the account that is running now.
 		var curP = ps.filter(function(p) { return p['.name'] === cur; })[0];
 		var hidden = ps.filter(function(p) { return !onDash(p) && p['.name'] !== cur; }).length;
 		ps = ps.filter(onDash);
-		if (curP && !onDash(curP)) r.polHint.textContent += ' ' + (curP.name || cur) + (live ? ' is running' : ' is selected') + ' but hidden from the Dashboard.';
-		if (hidden) r.polHint.textContent += ' ' + hidden + (hidden > 1 ? ' accounts are' : ' account is') + ' not on the Dashboard and never used by Fallback or Auto.';
+		if (curP && !onDash(curP)) r.polHint.textContent += ' ' + (curP.name || cur) + ' is hidden.';
+		if (hidden) r.polHint.textContent += ' ' + hidden + ' hidden, skipped.';
 		ps.forEach(function(p) {
 			var id = p['.name'], L = layers(p);
 			var where = L.dns ? 'NS ' + (p.dns_domain || '?') : (p.host || '?') + ':' + (p.port || defPort(L));
@@ -985,7 +988,7 @@ return view.extend({
 				'aria-current': isCur ? 'true' : null,
 				'keydown': function(ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } },
 				'class': 'tt-tile tt-kt-' + kindKey(p) + (isCur ? ' cur' : '') + (isSw ? ' sw' : '') + (dis ? ' dis' : '') + (pol === 'balance' && !isCur && inBal(p) ? ' bal' : ''),
-				'title': failAt ? 'The server refused the login (account locked, expired or wrong password). Cleared after a successful login.' : (t ? (t.error || (t.target === 'live tunnel' ? 'Ping of the running tunnel' : 'Real delay: logged in and opened ' + (t.target || 'the check URL') + ' through this account')) : null),
+				'title': failAt ? 'Login refused (locked, expired or wrong password).' : (t ? (t.error || (t.target === 'live tunnel' ? 'Ping of the running tunnel' : 'Real delay: logged in and opened ' + (t.target || 'the check URL') + ' through this account')) : null),
 				'click': go
 			}, [
 				E('span', { 'class': 'tt-tt' }, [ E('span', { 'class': 'tt-radio' }), E('strong', {}, p.name || id), E('span', { 'class': bcls }, badge) ]),
@@ -1057,7 +1060,7 @@ return view.extend({
 		this.paintList();
 		this.paintEditor();
 		return [
-			trows([ trow('Your accounts', 'The order is the fallback order: the first account is tried first.', [
+			trows([ trow('Your accounts', 'Fallback tries them top to bottom.', [
 				E('div', { 'class': 'tt-actions tt-lacts' }, [
 					button('+ Add account', 'add', function() { self.cancelNew(true); self.newProfile(); }),
 					button('Import', 'action', function() { self.importDialog(); }),
@@ -1091,7 +1094,7 @@ return view.extend({
 	backupDialog: function() {
 		var self = this;
 		ui.showModal('Backup and restore', [
-			E('p', {}, 'A backup file contains every account with its password. Keep it private.'),
+			E('p', {}, 'Backups include passwords. Keep them private.'),
 			E('div', { 'class': 'tt-actions' }, [
 				button('Export all accounts (.json)', 'action', function() { self.exportProfiles(); }),
 				button('Restore from file', 'action', function() { ui.hideModal(); self.restoreProfiles(); })
@@ -1123,7 +1126,7 @@ return view.extend({
 				E('span', { 'class': 'tt-grip', 'title': 'Drag to change the order', 'aria-hidden': 'true' }, '⠿'),
 				E('span', { 'class': 'tt-pnum' }, String(i + 1)),
 				E('div', { 'class': 'tt-pm' }, [
-					E('div', { 'class': 'tt-pn' }, [ E('strong', {}, nm), ex ? E('span', { 'class': ex.cls }, ex.text) : '', onDash(p) ? '' : E('span', { 'class': 'tt-exp', 'title': 'Not shown on the Dashboard, so Fallback and Auto never use it.' }, 'Not on Dashboard') ]),
+					E('div', { 'class': 'tt-pn' }, [ E('strong', {}, nm), ex ? E('span', { 'class': ex.cls }, ex.text) : '', onDash(p) ? '' : E('span', { 'class': 'tt-exp', 'title': 'Hidden, so Fallback and Auto skip it.' }, 'Not on Dashboard') ]),
 					E('div', { 'class': 'tt-pd' }, [ niceLabel(p), ' · ', E('span', { 'class': 'tt-mono' }, where) ])
 				]),
 				E('div', { 'class': 'tt-pb' }, [
@@ -1136,7 +1139,7 @@ return view.extend({
 			box.appendChild(rowEl);
 		});
 		list.appendChild(box);
-		list.appendChild(E('div', { 'class': 'cbi-section-descr tt-dragh' }, 'Drag ⠿ or use ↑ ↓ to change the order. The first account is tried first by Fallback.'));
+		list.appendChild(E('div', { 'class': 'cbi-section-descr tt-dragh' }, 'Drag ⠿ or use ↑ ↓ to reorder. Fallback starts at the top.'));
 	},
 
 	addProfile: function(v, batch) {
@@ -1170,7 +1173,7 @@ return view.extend({
 	importText: function(body) {
 		var self = this;
 		var ta = E('textarea', { 'class': 'cbi-input-textarea tt-log', 'rows': '8', 'placeholder': 'tomatotunnel://…\nvless://… vmess://… trojan://…\nhost.example.com:80@user:pass\nssh://user:pass@host:22\n\nor an account message:\nHost : sg1.example.com\nUsername : dudul\nPassword : secret\nNS : ns.example.com\nPub key : 4f1a…\nExpired : 2026-12-20' });
-		body.appendChild(E('div', { 'class': 'cbi-section-descr' }, 'Paste the account message from the bot or CLI, vless:// vmess:// trojan:// links, or a share link from another router. Lines it does not understand are ignored.'));
+		body.appendChild(E('div', { 'class': 'cbi-section-descr' }, 'Paste an account message, vless:// vmess:// trojan:// links or a share link. Unknown lines are skipped.'));
 		body.appendChild(ta);
 		body.appendChild(E('div', { 'class': 'right' }, [
 			E('button', { 'class': 'btn cbi-button', 'click': ui.hideModal }, 'Cancel'), ' ',
@@ -1241,7 +1244,7 @@ return view.extend({
 		var link = 'tomatotunnel://' + b64enc(JSON.stringify(o));
 		var ta = E('textarea', { 'class': 'cbi-input-textarea tt-log', 'rows': '5', 'readonly': '', 'style': 'white-space:pre-wrap;word-break:break-all' }, link);
 		ui.showModal('Share link: ' + (p.name || id), [
-			E('div', { 'class': 'cbi-section-descr' }, 'Import it on another router with Accounts › Import › Text / share link. It contains the password.'),
+			E('div', { 'class': 'cbi-section-descr' }, 'Import via Accounts › Import. Includes the password.'),
 			ta,
 			E('div', { 'class': 'right' }, [
 				E('button', { 'class': 'btn cbi-button', 'click': ui.hideModal }, 'Close'), ' ',
@@ -1320,7 +1323,7 @@ return view.extend({
 	expiryRow: function(d) {
 		var ex = expInfo(d, +this.get('expiry_warn', '3'));
 		var inp = E('input', { 'class': 'cbi-input-text', 'type': 'date', 'value': (d.expires || '').slice(0, 10), 'input': function(ev) { d.expires = ev.target.value; }, 'change': function(ev) { d.expires = ev.target.value; } });
-		return row('Expires on', inp, (ex ? ex.text + '. ' : '') + 'Optional. Shows a reminder before it ends; expired accounts are skipped by Auto and Fallback.');
+		return row('Expires on', inp, (ex ? ex.text + '. ' : '') + 'Optional. Reminder before it ends; expired = skipped.');
 	},
 
 	editorSection: function(rows, d, id, kind) {
@@ -1337,7 +1340,7 @@ return view.extend({
 			button('Share link', 'neutral', function() { self.saveDraft(true).then(function() { self.shareLink(id); }); }),
 			button('Delete', 'remove', function() { self.deleteProfile(id); })
 		];
-		this.refs.editor.appendChild(trows([ trow(isNew ? 'New account' : 'Edit: ' + (d.name || id), isNew ? 'Fill in what your seller gave you, then test or connect.' : niceLabel(d), [],
+		this.refs.editor.appendChild(trows([ trow(isNew ? 'New account' : 'Edit: ' + (d.name || id), isNew ? 'Fill in the seller details, then connect.' : niceLabel(d), [],
 			rows.concat([ E('div', { 'class': 'tt-actions' }, acts), this.refs.testOut ])) ]));
 	},
 
@@ -1403,7 +1406,7 @@ return view.extend({
 			d.use_payload = x[2] ? '1' : '0'; d.use_tls = x[3] ? '1' : '0'; d.enhanced = x[4] ? '1' : '0'; d.use_slowdns = x[5] ? '1' : '0';
 			if (!d.port || d.port === before) d.port = defPort(layers(d));
 			self.paintEditor();
-		}), L.xray ? 'Xray client: VLESS, VMess or Trojan over TCP, WebSocket, HTTPUpgrade, gRPC or XHTTP, with TLS or REALITY. TCP and UDP.' : L.zivpn ? 'UDP tunnel of the ZiVPN app. Carries TCP and UDP, no UDPGW needed.' : (hint.length ? 'SSH ' + hint.join(' · ') + '.' : 'Plain SSH to the server.')));
+		}), L.xray ? 'VLESS, VMess or Trojan with TLS or REALITY. TCP + UDP.' : L.zivpn ? 'ZiVPN UDP tunnel. TCP + UDP, no UDPGW.' : (hint.length ? 'SSH ' + hint.join(' · ') + '.' : 'Plain SSH to the server.')));
 		if (L.zivpn) {
 			rows.push(row('Server host', bind('host', { 'placeholder': 'sg1.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' })));
 			rows.push(row('UDP port', bind('port', { 'inputmode': 'numeric', 'placeholder': '5667' }), '5667, or any port from 6000–19999.'));
@@ -1419,7 +1422,7 @@ return view.extend({
 		if (!L.zivpn && !L.xray) {
 		if (custom) {
 			rows.push(row('Payload', flag('use_payload')));
-			if (L.payload) rows.push(row('Enhanced', flag('enhanced'), 'Send the payload in parts at every [split] and skip every HTTP reply until the SSH server answers.'));
+			if (L.payload) rows.push(row('Enhanced', flag('enhanced'), 'Split at [split], skip HTTP replies until SSH answers.'));
 			rows.push(row('TLS / SSL', flag('use_tls')));
 			rows.push(row('SlowDNS', flag('use_slowdns')));
 		}
@@ -1435,7 +1438,7 @@ return view.extend({
 			rows.push(row('Nameserver (NS)', bind('dns_domain', { 'placeholder': 'ns.example.com', 'autocapitalize': 'off' })));
 			rows.push(row('Public key', bind('dns_pubkey', { 'class': 'cbi-input-text tt-mono', 'placeholder': '64 hex characters', 'spellcheck': 'false' })));
 			rows.push(row('Record type', select(d.dns_type || 'auto', [ [ 'auto', 'Automatic' ], [ 'txt', 'TXT' ], [ 'null', 'NULL' ], [ 'cname', 'CNAME' ], [ 'ns', 'NS' ], [ 'mx', 'MX' ], [ 'srv', 'SRV' ] ], function(v) { d.dns_type = v; }),
-				'Automatic tries TXT, NULL and CNAME. Some resolvers only pass certain types (for example NULL).'));
+				'Automatic tries several types. Some DNS only pass one.'));
 			var presets = [ [ '1.1.1.1', '1.1.1.1 (UDP)' ], [ '8.8.8.8', '8.8.8.8 (UDP)' ], [ 'https://cloudflare-dns.com/dns-query', 'DoH Cloudflare' ], [ 'dot:dns.google:853', 'DoT Google' ] ];
 			var isPresetVal = function(v) { return !v || presets.some(function(p) { return p[0] === v; }); };
 			// _resCustom (not saved, PROFILE_KEYS leaves it out) keeps "Custom…" chosen while the field
@@ -1460,9 +1463,9 @@ return view.extend({
 
 		if (L.tls) {
 			rows.push(row(L.payload ? 'Bug host / SNI' : 'SNI', bind('bug', { 'placeholder': 'bug.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' }), L.payload ? 'Used as TLS SNI and for [bug] in the payload.' : 'Server name sent in the TLS handshake.'));
-			rows.push(row('Allow insecure', flag('insecure'), 'Do not verify the TLS certificate (needed for most bug hosts / SNI tricks).'));
+			rows.push(row('Allow insecure', flag('insecure'), 'Skip the certificate check (usual for bug hosts).'));
 		} else if (L.payload) {
-			rows.push(row('Bug host', bind('bug', { 'placeholder': 'bug.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' }), 'Used for [bug] in the payload. [rotate=a;b] / [random=a;b] also work.'));
+			rows.push(row('Bug host', bind('bug', { 'placeholder': 'bug.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' }), 'Fills [bug]. [rotate=a;b] / [random=a;b] work.'));
 		}
 
 		if (L.payload) {
@@ -1479,12 +1482,12 @@ return view.extend({
 					if (TEMPLATES[v]) { d.payload = TEMPLATES[v]; }
 					self.paintEditor();
 				}) ]),
-				'Empty = default WebSocket template. Common tags: [bug] [host] [port] [host_port] [ua] [crlf] [split]. Full list in the guide.'));
+				'Empty = default template. Tags: [bug] [host] [port] [crlf] [split]…'));
 			if (/\[split\]/.test(payloadText))
 				rows.push(row('[split] delay (ms)', bind('split_delay', { 'inputmode': 'numeric', 'placeholder': '1000' })));
 		}
 
-		if (!isDns) rows.push(row('Remote proxy', bind('proxy', { 'placeholder': 'ip:port (optional)' }), 'Connect to this proxy instead of the server host.'));
+		if (!isDns) rows.push(row('Remote proxy', bind('proxy', { 'placeholder': 'ip:port (optional)' }), 'Connect through this proxy.'));
 		if (L.payload) {
 			var knownUA = UAS.some(function(u) { return u[0] === d.ua; });
 			var cur = !d.ua ? UAS[0][0] : (knownUA ? d.ua : '*');
@@ -1504,7 +1507,7 @@ return view.extend({
 			'Balance only. Higher = more connections.'));
 		rows.push(this.expiryRow(d));
 		rows.push(row('Show on Dashboard', checkbox(d.dashboard !== '0', function(v) { d.dashboard = v ? '' : '0'; }),
-			'Only accounts on the Dashboard are used by Fallback and Auto. Turn it off to keep this one as a spare: its card is hidden, and Save & connect here still connects it.'));
+			'Off = spare: hidden, skipped by Fallback and Auto.'));
 		this.editorSection(rows, d, id, 'custom');
 	},
 
@@ -1523,7 +1526,7 @@ return view.extend({
 		if (!this.xrayVer) {
 			var xlog = E('textarea', { 'class': 'cbi-input-textarea tt-log', 'readonly': '', 'rows': '4', 'wrap': 'off', 'style': 'display:none' });
 			rows.push(E('div', { 'class': 'alert-message warning' }, [
-				E('strong', {}, 'Xray is not installed yet. '), 'It is an add-on of about 30 MB. Install it from GitHub with one click (SHA256 checked), then this account can connect.',
+				E('strong', {}, 'Xray is not installed yet. '), 'Needs the Xray add-on (~30 MB). One-click install.',
 				E('div', { 'class': 'tt-actions' }, button('Install Xray', 'apply', function(ev) { self.saveDraft(true); self.installXray(ev.currentTarget, xlog); })),
 				xlog
 			]));
@@ -1538,11 +1541,11 @@ return view.extend({
 			self.paintEditor();
 			ui.addNotification(null, E('p', 'Filled from the link: ' + xrayLabel(d) + '. Check it, then Save & connect.'), 'info');
 		} }, 'Fill');
-		rows.push(row('Import from link', E('div', { 'class': 'tt-inline' }, [ link, fill ]), 'Paste the link from your seller or the Tomato menu. Every field below is filled for you.'));
+		rows.push(row('Import from link', E('div', { 'class': 'tt-inline' }, [ link, fill ]), 'Paste the link; fields fill in by themselves.'));
 		var reality = x.sec === 'reality';
 		rows.push(row('Protocol', seg('x_proto', XPROTO, function(v) { return reality && v !== 'vless'; }), reality ? 'REALITY works with VLESS only.' : null));
 		rows.push(row('Address', bind('host', { 'placeholder': 'sg1.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' }),
-			reality ? 'Your server domain or IP.' : 'Server domain, or a bug host / IP if your package needs it. Then put the server domain in Host and SNI below.'));
+			reality ? 'Your server domain or IP.' : 'Server domain, or bug host / IP (then server in Host/SNI).'));
 		rows.push(row('Port', bind('port', { 'inputmode': 'numeric', 'placeholder': '443' })));
 		if (x.proto === 'trojan') {
 			var pw = bind('pass', { 'type': 'password', 'autocomplete': 'new-password', 'style': 'flex:1 1 auto;min-width:0;width:auto' });
@@ -1557,12 +1560,12 @@ return view.extend({
 		if (x.net === 'ws' || x.net === 'httpupgrade' || x.net === 'xhttp') {
 			rows.push(row('Path', bind('x_path', Object.assign({ 'placeholder': '/' }, mono)), 'Must match the server.'));
 			rows.push(row('Host header', bind('x_host', { 'placeholder': x.net === 'xhttp' ? 'optional' : 'server domain', 'autocapitalize': 'off', 'spellcheck': 'false' }),
-				x.net === 'xhttp' ? 'Leave empty to use SNI.' : 'Your server domain when Address is a bug host.'));
+				x.net === 'xhttp' ? 'Leave empty to use SNI.' : 'Server domain if Address is a bug host.'));
 		}
-		if (x.net === 'xhttp') rows.push(row('Mode', select(d.x_mode || 'auto', [ [ 'auto', 'Auto' ], [ 'packet-up', 'packet-up' ], [ 'stream-up', 'stream-up' ], [ 'stream-one', 'stream-one' ] ], function(v) { d.x_mode = v; }), 'Auto is fine unless your seller says otherwise.'));
+		if (x.net === 'xhttp') rows.push(row('Mode', select(d.x_mode || 'auto', [ [ 'auto', 'Auto' ], [ 'packet-up', 'packet-up' ], [ 'stream-up', 'stream-up' ], [ 'stream-one', 'stream-one' ] ], function(v) { d.x_mode = v; }), 'Auto unless your seller says otherwise.'));
 		if (x.net === 'grpc') rows.push(row('Service name', bind('x_service', Object.assign({ 'placeholder': 'vless-grpc' }, mono)), 'gRPC service name from the server.'));
 		if (x.proto === 'vless' && x.net === 'tcp' && x.sec !== 'none')
-			rows.push(row('Flow', select(d.x_flow || '', [ [ '', 'None' ], [ 'xtls-rprx-vision', 'xtls-rprx-vision' ] ], function(v) { d.x_flow = v; }), 'Vision only with VLESS + TCP + TLS/REALITY, when the server uses it.'));
+			rows.push(row('Flow', select(d.x_flow || '', [ [ '', 'None' ], [ 'xtls-rprx-vision', 'xtls-rprx-vision' ] ], function(v) { d.x_flow = v; }), 'Vision: VLESS + TCP + TLS/REALITY only.'));
 		rows.push(row('Security', seg('x_sec', XSEC, null, function(v) {
 			if (v === 'reality') { d.x_proto = 'vless'; if (d.x_net === 'ws' || d.x_net === 'httpupgrade') d.x_net = 'tcp'; }
 			if ((d.port === '80' && v !== 'none') ) d.port = '443';
@@ -1570,12 +1573,12 @@ return view.extend({
 		})));
 		var fp = select(d.fp || 'chrome', XFP, function(v) { d.fp = v; });
 		if (x.sec === 'tls') {
-			rows.push(row('SNI', bind('sni', { 'placeholder': 'server domain', 'autocapitalize': 'off', 'spellcheck': 'false' }), 'Name sent in the TLS handshake. Use the bug host here if your package checks SNI.'));
+			rows.push(row('SNI', bind('sni', { 'placeholder': 'server domain', 'autocapitalize': 'off', 'spellcheck': 'false' }), 'TLS name. Use the bug host if your package checks SNI.'));
 			rows.push(row('Fingerprint', fp));
-			rows.push(row('Allow insecure', checkbox(d.insecure !== '0', function(v) { d.insecure = v ? '1' : '0'; }), 'Skip the certificate check. Needed when SNI is a bug host that does not match the certificate.'));
+			rows.push(row('Allow insecure', checkbox(d.insecure !== '0', function(v) { d.insecure = v ? '1' : '0'; }), 'Skip the certificate check (bug host SNI).'));
 		}
 		if (reality) {
-			rows.push(row('SNI', bind('sni', { 'placeholder': 'www.microsoft.com', 'autocapitalize': 'off', 'spellcheck': 'false' }), 'The site REALITY borrows, from the server config (Tomato: one of the REALITY SNI slots).'));
+			rows.push(row('SNI', bind('sni', { 'placeholder': 'www.microsoft.com', 'autocapitalize': 'off', 'spellcheck': 'false' }), 'Site REALITY borrows, from the server config.'));
 			rows.push(row('Public key', bind('pbk', mono), 'Called pbk in the link.'));
 			rows.push(row('Short ID', bind('sid', mono), 'Called sid in the link. Can be empty.'));
 			rows.push(row('Fingerprint', fp));
@@ -1706,16 +1709,16 @@ return view.extend({
 		var g = function(o, d) { return self.get(o, d); };
 		this.loadUsage();
 		return [ trows([
-			trow('Usage', 'Traffic that went through the tunnel. Totals are saved every 10 minutes and on Stop.', [
+			trow('Usage', 'Tunnel traffic. Saved every 10 min and on Stop.', [
 				E('div', { 'class': 'tt-legend' }, [ E('span', {}, 'Click a bar for details.') ]), r.uRange
 			], [
 				r.uTiles,
 				E('div', { 'class': 'tt-chart' }, [ r.uBars, r.uAxis ]),
 				E('div', { 'class': 'tt-ugrid' }, [ r.uProf, r.uDev ])
 			]),
-			trow('Usage settings', 'Kept for 90 days (months for 2 years) in /etc/tomato-tunnel/usage.json. Per-device numbers need TUN mode.', [], [
-				row('Period starts on day', textInput(g('usage_reset_day', '1'), function(v) { self.set('usage_reset_day', v.trim()); }, { 'inputmode': 'numeric' }), 'Day of the month your package renews (1–28).'),
-				row('Warn at (GB per period)', textInput(g('usage_quota_gb', '0'), function(v) { self.set('usage_quota_gb', v.trim()); }, { 'inputmode': 'numeric' }), '0 = off. Shows a notice on the Dashboard at 80% and 100%.'),
+			trow('Usage settings', 'Kept 90 days (months: 2 years). Per device needs TUN.', [], [
+				row('Period starts on day', textInput(g('usage_reset_day', '1'), function(v) { self.set('usage_reset_day', v.trim()); }, { 'inputmode': 'numeric' }), 'Renewal day (1–28).'),
+				row('Warn at (GB per period)', textInput(g('usage_quota_gb', '0'), function(v) { self.set('usage_quota_gb', v.trim()); }, { 'inputmode': 'numeric' }), '0 = off. Notice at 80% and 100%.'),
 				E('div', { 'class': 'tt-actions' }, [
 					button('Save', 'save', function() { self.commit('Usage settings saved.').then(function() { self.paintUsage(); }); }),
 					button('Reset usage', 'remove', function() {
@@ -1812,15 +1815,32 @@ return view.extend({
 			if (!ids.length) { box.appendChild(E('em', { 'class': 'tt-muted' }, isDev ? (self.get('net_mode', 'tun') === 'tun' ? 'No device traffic recorded.' : 'Needs TUN mode.') : 'No traffic.')); return; }
 			var tot = 0;
 			ids.forEach(function(id) { tot += obj[id].rx + obj[id].tx; });
-			ids.slice(0, 12).forEach(function(id) {
+			// many devices (random MACs): the top few, the rest summed up, and
+			// "Show all" opens the full list in its own scroll box
+			var TOP = 8, all = !!(self.uAll && self.uAll[head]);
+			var rows = all ? E('div', { 'class': 'tt-uscroll' }) : box;
+			(all ? ids : ids.slice(0, TOP)).forEach(function(id) {
 				var o = obj[id], v = o.rx + o.tx;
 				var nm = isDev ? (o.name || id) : (o.name || (uci.get(CONF, id) || {}).name || id);
-				box.appendChild(E('div', { 'class': 'tt-urow' }, [
+				rows.appendChild(E('div', { 'class': 'tt-urow' }, [
 					E('div', { 'class': 'tt-urt' }, [ E('span', {}, [ E('strong', {}, nm), isDev && o.name ? E('span', { 'class': 'tt-mono tt-muted' }, ' ' + id) : '' ]), E('span', { 'class': 'tt-mono' }, fmtBytes(v)) ]),
 					E('div', { 'class': 'tt-qbar' }, E('i', { 'style': 'width:' + Math.round(v / tot * 100) + '%' })),
 					E('div', { 'class': 'tt-ss' }, '↓ ' + fmtBytes(o.rx) + ' · ↑ ' + fmtBytes(o.tx))
 				]));
 			});
+			if (all) box.appendChild(rows);
+			if (ids.length <= TOP) return;
+			var rest = 0;
+			ids.slice(TOP).forEach(function(id) { rest += obj[id].rx + obj[id].tx; });
+			box.appendChild(E('div', { 'class': 'tt-umore' }, [
+				all ? E('span', { 'class': 'tt-muted' }, ids.length + ' in total')
+					: E('span', { 'class': 'tt-muted' }, (ids.length - TOP) + ' more · ' + fmtBytes(rest)),
+				E('button', { 'type': 'button', 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
+					self.uAll = self.uAll || {};
+					self.uAll[head] = !all;
+					self.paintUsage();
+				} }, all ? 'Show less' : 'Show all (' + ids.length + ')')
+			]));
 		};
 		listBox(r.uProf, 'by profile', agg.profiles, false);
 		listBox(r.uDev, 'by device', agg.devices, true);
@@ -1832,7 +1852,7 @@ return view.extend({
 			[ 'general', 'General', 'Start, reconnect, reminders' ],
 			[ 'changeip', 'Change IP', 'Modems, IP ranges' ],
 			[ 'network', 'Network', 'TUN, SOCKS, DNS, bypass' ],
-			[ 'schedule', 'Schedule', 'Change account or mode, or turn the tunnel on and off, by time' ],
+			[ 'schedule', 'Schedule', 'Switch account, mode or tunnel on/off by time' ],
 			[ 'telegram', 'Telegram', 'Bot, alerts, remote control' ],
 			[ 'look', 'Appearance', 'Banner' ],
 			[ 'about', 'About & update', 'Version, update, credits' ]
@@ -1943,7 +1963,7 @@ return view.extend({
 			paintB();
 			probe();
 			return [ section('Appearance', [
-				E('div', { 'class': 'cbi-value-description', 'style': 'margin:0 0 .8em' }, 'Banner at the top of the Dashboard. Your own image: JPG, PNG or WebP, about 1200×200, max 500 KB.'),
+				E('div', { 'class': 'cbi-value-description', 'style': 'margin:0 0 .8em' }, 'Dashboard banner. Own image: JPG/PNG/WebP, ~1200×200, max 500 KB.'),
 				grid,
 				E('h4', {}, 'Preview'),
 				prev
@@ -1961,34 +1981,35 @@ return view.extend({
 			} }, (uci.get(CONF, 'main', 'direct_domain') || []).join('\n'));
 			return [ section('Network', [
 				row('Traffic mode', sel('net_mode', 'tun', [ [ 'tun', 'TUN (recommended) · TCP + UDP' ], [ 'redirect', 'TCP redirect (nftables / iptables)' ], [ 'socks', 'SOCKS5 only (for OpenClash / PassWall)' ] ]),
-					'TUN: the whole LAN, TCP + UDP. SOCKS5 only: no routing changes.'),
+					'TUN: whole LAN. SOCKS5: no routing changes.'),
 				row('SOCKS5 port', txt('socks_port', '1080', { 'inputmode': 'numeric' })),
 				row('SOCKS5 listen', sel('socks_listen', '127.0.0.1', [ [ '127.0.0.1', '127.0.0.1 (router only)' ], [ '0.0.0.0', 'All interfaces (LAN)' ] ])),
-				row('Outgoing interface', sel('wan_iface', '', ifOpts), 'e.g. the modem (wwan0). Auto = normal routing.'),
+				row('Outgoing interface', sel('wan_iface', '', ifOpts), 'e.g. wwan0. Auto = normal routing.'),
 				row('DNS through the tunnel', sel('dns_mode', 'tunnel', [ [ 'tunnel', 'Yes · DNS over TCP through the tunnel' ], [ 'off', 'No (use ISP DNS)' ] ])),
 				row('DNS server', txt('dns_server', '1.1.1.1'), 'Asked from the server side.'),
 				row('Manage dnsmasq', flag('manage_dnsmasq', '1'), 'Restored on Stop.'),
-				row('Indonesian IPs go direct', flag('bypass_id', '0'), 'Local sites and games use your normal line (TUN and TCP redirect mode). Works for every account type.'),
-				row('Direct IPs / devices', bypass, 'IP, CIDR or device that skips the tunnel, one per line. Server and LAN are bypassed automatically.'),
-				row('Direct domains', dd, 'One per line, subdomains included. These sites leave straight through the modem, not the tunnel: good for bank apps and games that block VPN IPs. Works for every account type (SSH, SlowDNS and ZiVPN need DNS through the tunnel).'),
-				row('Block ads (Xray)', flag('block_ads', '0'), 'Small built-in list of ad and tracker domains. Some apps may break; turn it off if so. Xray accounts only.'),
+				row('Indonesian IPs go direct', flag('bypass_id', '0'), 'Local sites and games skip the tunnel.'),
+				row('Direct IPs / devices', bypass, 'One IP, CIDR or device per line skips the tunnel.'),
+				row('Direct domains', dd, 'One per line, subdomains included. For banks and games that block VPN.'),
+				row('Tailscale', sel('tailscale', 'auto', [ [ 'auto', 'Through the tunnel (auto)' ], [ '0', 'Off · direct' ] ]), 'TUN only. Login, relays and exit node use the tunnel.'),
+				row('Block ads (Xray)', flag('block_ads', '0'), 'Built-in ad list. Xray only; may break some apps.'),
 				row('SSH compatibility', sel('ssh_compat', 'auto', [ [ 'auto', 'Auto (recommended)' ], [ 'legacy', 'Legacy (old Dropbear first)' ], [ 'modern', 'Modern only' ] ]),
-					'Old Dropbear servers are handled automatically.')
-			], 'How the LAN uses the tunnel. Leave it as it is if unsure.'), foot ];
+					'Old Dropbear is handled automatically.')
+			], 'How the LAN uses the tunnel.'), foot ];
 		}
 		return [ section('General', [
-			row('Start on boot', flag('autostart', '0'), 'Connect automatically when the router starts.'),
+			row('Start on boot', flag('autostart', '0'), 'Connect when the router starts.'),
 			row('Profile selection', sel('policy', self.policy(), [ [ 'manual', 'Manual · stay on the chosen profile' ], [ 'fallback', 'Fallback · next profile when one fails' ], [ 'auto', 'Auto · move to the fastest profile' ], [ 'balance', 'Balance · several accounts at once, speed added up' ] ]), 'Also on the Dashboard.'),
-			row('Fallback: go back to the chosen account', flag('fallback_return', '1'), 'When Fallback moved to a backup account, the chosen one is tested every 5 minutes with a real login and used again once it works (at least 3 minutes after the move).'),
-			row('Block QUIC (UDP 443)', flag('block_quic', '0'), 'Browsers and apps use TCP instead of QUIC/HTTP3. Can make video steadier when UDP goes through UDPGW or Xray over TCP. Games, calls and DNS are not touched.'),
-			row('Balance: same account per site', flag('balance_sticky', '0'), 'On: one site stays on one account (banks, games), but no added speed for it.'),
-			row('Warn before expiry', sel('expiry_warn', '3', [ [ '1', '1 day' ], [ '3', '3 days' ], [ '7', '7 days' ] ]), 'Expired profiles are skipped by Auto and Fallback.'),
+			row('Fallback: go back to the chosen account', flag('fallback_return', '1'), 'Retry the chosen account every 5 min, switch back when it works.'),
+			row('Block QUIC (UDP 443)', sel('block_quic', 'auto', [ [ 'auto', 'Auto (recommended)' ], [ '1', 'On' ], [ '0', 'Off' ] ]), 'Auto: on, except ZiVPN. Steadier YouTube; games untouched.'),
+			row('Balance: same account per site', flag('balance_sticky', '0'), 'Keeps each site on one account (banks, games).'),
+			row('Warn before expiry', sel('expiry_warn', '3', [ [ '1', '1 day' ], [ '3', '3 days' ], [ '7', '7 days' ] ]), 'Expired profiles are skipped.'),
 			row('Connection check URL', txt('check_url', 'http://cp.cloudflare.com/generate_204', { 'spellcheck': 'false' })),
-			row('Unified delay', flag('unified_delay', '1'), 'Ping without the connection handshakes, like OpenClash: smaller numbers that show the real round trip. Off: the full time of one new request.'),
+			row('Unified delay', flag('unified_delay', '1'), 'Ping without handshakes, like OpenClash.'),
 			row('Check every (seconds)', txt('check_interval', '5', { 'inputmode': 'numeric' })),
 			row('Failures before reconnect', txt('check_fail', '3', { 'inputmode': 'numeric' })),
 			row('Parallel SSH sessions', sel('sessions', '1', [ [ '1', '1 (normal)' ], [ '2', '2' ], [ '3', '3' ], [ '4', '4' ] ]))
-		], 'The basics. Most people never change anything else.'), foot ];
+		], 'The basics.'), foot ];
 	},
 
 	renderTelegram: function() {
@@ -2028,7 +2049,7 @@ return view.extend({
 			})));
 		};
 		paintAdm();
-		var codeBox = E('div', { 'class': 'cbi-value-description' }, 'Press New code, then send /pair <code> to your bot within 5 minutes.');
+		var codeBox = E('div', { 'class': 'cbi-value-description' }, 'New code, then send /pair <code> to the bot (5 min).');
 		var pairBtn = button('New code', 'action', function(ev) {
 			var b = ev.currentTarget;
 			b.disabled = true;
@@ -2065,19 +2086,19 @@ return view.extend({
 		box.appendChild(section('Telegram bot', [
 			row('Enable bot', bflag('enabled', '0')),
 			row('Status', stLine),
-			row('Bot token', tokRow, 'From @BotFather. Kept in /etc/config with mode 600.'),
+			row('Bot token', tokRow, 'From @BotFather.'),
 			row('Language', bsel('lang', 'en', [ [ 'en', 'English' ], [ 'id', 'Bahasa Indonesia' ] ])),
-			row('Connect via', bsel('route', 'auto', [ [ 'auto', 'Auto (WAN first, then tunnel)' ], [ 'wan', 'WAN only' ], [ 'tunnel', 'Tunnel only' ] ]), 'Auto keeps "tunnel down" alerts working when the tunnel is off.')
-		], 'Control the tunnel and get alerts from Telegram. Runs as its own small process, so Start works even when the tunnel is stopped.'));
+			row('Connect via', bsel('route', 'auto', [ [ 'auto', 'Auto (WAN first, then tunnel)' ], [ 'wan', 'WAN only' ], [ 'tunnel', 'Tunnel only' ] ]), 'Auto keeps alerts working when the tunnel is off.')
+		], 'Control and alerts from Telegram. Works while the tunnel is off.'));
 		box.appendChild(section('Admins', [
 			admBox,
 			row('Pair new admin', E('div', {}, [ pairBtn, codeBox ]), hasPair ? null : 'Save a token and enable the bot first.')
-		], 'Only paired Telegram accounts can use the bot.'));
+		], 'Only paired accounts can use the bot.'));
 		box.appendChild(section('Notifications', N.map(function(n) { return row(n[1], bflag('n_' + n[0], n[2])); }).concat([
 			row('Alert after down for', bsel('down_after', '30', [ [ '15', '15 seconds' ], [ '30', '30 seconds' ], [ '60', '1 minute' ], [ '300', '5 minutes' ] ]), 'Short drops are not reported.'),
 			row('Daily report', bsel('report_hour', '0', hours), 'Usage of the previous day.')
 		])));
-		box.appendChild(section('Allowed actions', A.map(function(a) { return row(a[1], bflag('a_' + a[0], '1')); }), 'Turn off what the bot must not do. Viewing is always allowed.'));
+		box.appendChild(section('Allowed actions', A.map(function(a) { return row(a[1], bflag('a_' + a[0], '1')); }), 'Turn off what the bot may not do.'));
 		box.appendChild(E('div', { 'class': 'cbi-page-actions tt-pgact' }, [
 			button('Send test message', 'neutral', function(ev) {
 				var b = ev.currentTarget; b.disabled = true;
@@ -2177,7 +2198,7 @@ return view.extend({
 			var g = function(o, d) { return self.get(o, d); };
 			var flag = function(o, d) { return checkbox(g(o, d) === '1', function(v) { self.set(o, v ? '1' : '0'); }); };
 			var rows = [
-				row('After failed connects', flag('ip_after_fails', g('restart_modem', '0') === '1' ? '1' : '0'), 'When the tunnel fails to connect several times.'),
+				row('After failed connects', flag('ip_after_fails', g('restart_modem', '0') === '1' ? '1' : '0'), 'After several failed connects.'),
 				row('Failed connects', textInput(g('ip_after_n', '3'), function(v) { self.set('ip_after_n', v.trim()); }, { 'inputmode': 'numeric' }))
 			];
 			if (ms.length > 1) {
@@ -2187,7 +2208,7 @@ return view.extend({
 			rows.push(row('Buttons on the Dashboard', flag('ip_button', '1'), ms.length > 1 ? 'One button per modem.' : null));
 			box.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('div', { 'class': 'tt-sechead' }, [ E('h3', {}, 'Modems'), add ]),
-				E('div', { 'class': 'cbi-section-descr' }, 'Each modem has its own method, interface and IP ranges.'),
+				E('div', { 'class': 'cbi-section-descr' }, 'Method, interface and IP ranges per modem.'),
 				E('div', { 'class': 'cbi-section-node' }, [ list ])
 			]));
 			if (ms.length) box.appendChild(section('When to change automatically', rows));
@@ -2212,11 +2233,11 @@ return view.extend({
 			var txt = function(o, d, attrs) { return textInput(m.get(o, d), function(v) { m.set(o, v.trim()); }, attrs); };
 			var M = [ [ 'iface', 'Restart interface' ], [ 'at', 'Airplane mode (AT command)' ], [ 'mm', 'ModemManager' ], [ 'hilink', 'HiLink / Orbit modem' ], [ 'adb', 'Android phone (ADB)' ] ];
 			var HINT = {
-				iface: 'ifdown/ifup the WAN interface. Works with most modems in RNDIS/QMI mode.',
-				at: 'Sends AT commands to the modem serial port: radio off, wait, radio on.',
-				mm: 'Uses mmcli to disable and enable the modem. Needs modemmanager.',
-				hilink: 'Turns mobile data off and on through the web API of the modem.',
-				adb: 'Airplane mode on the tethered phone (USB debugging on). Needs the adb package.'
+				iface: 'ifdown/ifup the WAN. Most RNDIS/QMI modems.',
+				at: 'AT commands: radio off, then on.',
+				mm: 'mmcli off/on. Needs modemmanager.',
+				hilink: 'Data off/on via the modem web API.',
+				adb: 'Phone airplane mode via adb (USB debugging).'
 			};
 			var rows = [ row('Name', txt('name', m.name())), row('Method', select(method, M, function(v) {
 				m.set('ip_method', v);
@@ -2246,12 +2267,12 @@ return view.extend({
 				if (!mms.some(function(o) { return o[0] === curM; })) mms.unshift([ curM, curM ]);
 				rows.push(row('Modem', E('div', { 'class': 'tt-inline' }, [ select(curM, mms, function(v) { m.set('mm_modem', v); }),
 					button('Detect', 'neutral', function(ev) { self.detectIP(ev.currentTarget, function() { det = self.ipDetect || {}; paint(); }); }) ]), det.mm_error || null));
-				rows.push(row('Interface', ifSel, 'Brought up again after the modem is enabled.'));
+				rows.push(row('Interface', ifSel, 'Brought up after the modem is on.'));
 			}
 			if (method === 'hilink') {
 				rows.push(row('Modem address', txt('hilink_addr', '192.168.8.1')));
 				rows.push(row('Modem username', txt('hilink_user', 'admin')));
-				rows.push(row('Modem password', textInput(m.get('hilink_pass', ''), function(v) { m.set('hilink_pass', v); }, { 'type': 'password', 'autocomplete': 'new-password' }), 'Huawei HiLink and Telkomsel Orbit. Leave empty if the modem page has no login.'));
+				rows.push(row('Modem password', textInput(m.get('hilink_pass', ''), function(v) { m.set('hilink_pass', v); }, { 'type': 'password', 'autocomplete': 'new-password' }), 'HiLink / Orbit. Empty if no login.'));
 				rows.push(row('Interface', ifSel, 'Router interface of this modem.'));
 			}
 			if (method === 'adb') {
@@ -2308,7 +2329,7 @@ return view.extend({
 			node.appendChild(E('div', { 'class': 'tt-actions' }, button('+ Add range', 'add', function() { rows.push({ from: '', to: '' }); paint(); })));
 		};
 		paint();
-		return section('Keep trying until the IP is in', [ node ], 'Short form works: 10.0 to 10.19. "From" alone takes a prefix (114.12.) or CIDR. Empty = any IP.');
+		return section('Keep trying until the IP is in', [ node ], 'e.g. 10.0 to 10.19, a prefix (114.12.) or CIDR. Empty = any.');
 	},
 
 	detectIP: function(btn, after) {
@@ -2339,17 +2360,20 @@ return view.extend({
 			box.innerHTML = '';
 			var list = uci.sections(CONF, 'schedule').slice().sort(function(a, b) { return (a.time || '').localeCompare(b.time || ''); });
 			var accs = self.profiles().map(function(p) { return [ p['.name'], p.name || p['.name'] ]; });
-			if (!list.length) box.appendChild(E('em', { 'class': 'tt-muted' }, 'No schedule yet. Example: 00:00 use the night-quota account, 06:00 back to the main one.'));
+			if (!list.length) box.appendChild(E('em', { 'class': 'tt-muted' }, 'No schedule yet. e.g. night account 00:00 until 06:00.'));
 			list.forEach(function(sc) {
 				var id = sc['.name'], act = sc.action || 'account';
-				var valSel = act === 'tunnel'
-					? E('div', { 'class': 'tt-schwin' }, [
-						select(sc.value === 'on' ? 'on' : 'off', [ [ 'off', 'Off' ], [ 'on', 'On only' ] ], function(v) { uci.set(CONF, id, 'value', v); }),
-						E('span', { 'class': 'tt-muted' }, 'until'),
-						E('input', { 'class': 'cbi-input-text', 'type': 'time', 'value': sc.end || '06:00', 'aria-label': 'Until',
-							'change': function(ev) { uci.set(CONF, id, 'end', ev.target.value); } })
-					])
-					: select(sc.value || '', [ [ '', '— choose —' ] ].concat(act === 'policy' ? MODES : accs), function(v) { uci.set(CONF, id, 'value', v); });
+				// every action has "until": tunnel on/off needs it; for an account or
+				// mode it switches back to the one used before (empty = the change stays)
+				var tun = act === 'tunnel';
+				var valSel = E('div', { 'class': 'tt-schwin' }, [
+					tun ? select(sc.value === 'on' ? 'on' : 'off', [ [ 'off', 'Off' ], [ 'on', 'On only' ] ], function(v) { uci.set(CONF, id, 'value', v); })
+						: select(sc.value || '', [ [ '', '— choose —' ] ].concat(act === 'policy' ? MODES : accs), function(v) { uci.set(CONF, id, 'value', v); }),
+					E('span', { 'class': 'tt-muted' }, 'until'),
+					E('input', { 'class': 'cbi-input-text', 'type': 'time', 'value': tun ? (sc.end || '06:00') : (sc.end || ''), 'aria-label': 'Until',
+						'title': tun ? 'End of the window' : 'Then back to the previous one. Empty = stays.',
+						'change': function(ev) { uci.set(CONF, id, 'end', ev.target.value || (tun ? '06:00' : null)); } })
+				]);
 				box.appendChild(E('div', { 'class': 'tt-schr' }, [
 					E('input', { 'class': 'cbi-input-text', 'type': 'time', 'value': sc.time || '00:00', 'aria-label': 'Time',
 						'change': function(ev) { uci.set(CONF, id, 'time', ev.target.value); } }),
@@ -2371,7 +2395,7 @@ return view.extend({
 			E('div', { 'class': 'tt-schr tt-schh' }, [ E('span', {}, 'Time'), E('span', {}, 'Days'), E('span', {}, 'Action'), E('span', {}, 'Account / mode / tunnel'), E('span', {}, 'Status'), E('span', {}) ]),
 			box,
 			E('div', { 'class': 'tt-actions' }, [
-				button('+ Add', 'add', function() { var sid = uci.add(CONF, 'schedule'); uci.set(CONF, sid, 'time', '00:00'); uci.set(CONF, sid, 'days', 'daily'); uci.set(CONF, sid, 'action', 'account'); uci.set(CONF, sid, 'enabled', '1'); paint(); }),
+				button('+ Add', 'add', function() { var sid = uci.add(CONF, 'schedule'); uci.set(CONF, sid, 'time', '00:00'); uci.set(CONF, sid, 'end', '06:00'); uci.set(CONF, sid, 'days', 'daily'); uci.set(CONF, sid, 'action', 'account'); uci.set(CONF, sid, 'enabled', '1'); paint(); }),
 				button('Save', 'save', function() {
 					self.commit(false).then(function(ok) {
 						if (!ok) return;
@@ -2381,7 +2405,7 @@ return view.extend({
 					});
 				})
 			])
-		], [ 'Switch account or mode, or turn the tunnel off/on for a time window, by the router clock. ', E('a', { 'href': 'https://github.com/' + self.get('update_repo', 'dudul19/tomato-tunnel') + '/blob/main/docs/GUIDE.md#schedule-170', 'target': '_blank', 'rel': 'noopener' }, 'How to use') ]) ];
+		], [ 'Account, mode or tunnel on/off by router time. Until = switch back. ', E('a', { 'href': 'https://github.com/' + REPO + '/blob/main/docs/GUIDE.md#schedule', 'target': '_blank', 'rel': 'noopener' }, 'How to use') ]) ];
 	},
 
 	renderConns: function() {
@@ -2391,7 +2415,7 @@ return view.extend({
 		r.cFilter = E('input', { 'class': 'cbi-input-text', 'type': 'search', 'placeholder': 'Filter: device, site, account', 'aria-label': 'Filter connections',
 			'input': function() { self.paintConns(); } });
 		this.loadConns();
-		return [ trows([ trow('Connections', 'What goes through the tunnel right now, fastest first. Refreshes every 2 seconds.', [ r.cFilter, r.cSum ], [ r.cBody ]) ]) ];
+		return [ trows([ trow('Connections', 'Live connections, fastest first.', [ r.cFilter, r.cSum ], [ r.cBody ]) ]) ];
 	},
 
 	loadConns: function() {
@@ -2425,10 +2449,10 @@ return view.extend({
 		Object.keys(per).sort().forEach(function(k) { r.cSum.appendChild(chip(k, per[k], k === '—' ? '' : k)); });
 		r.cBody.innerHTML = '';
 		if ((c.state || '') === 'stopped' || !list.length) {
-			r.cBody.appendChild(E('em', { 'class': 'tt-muted' }, list.length ? '' : 'No connections right now. The tunnel is stopped or nothing is being used.'));
+			r.cBody.appendChild(E('em', { 'class': 'tt-muted' }, list.length ? '' : 'No connections right now.'));
 			return;
 		}
-		if (c.direct) r.cBody.appendChild(E('div', { 'class': 'tt-ss tt-cnote' }, 'The tunnel goes straight to Xray, so traffic per connection is not counted. Devices and sites are still shown.'));
+		if (c.direct) r.cBody.appendChild(E('div', { 'class': 'tt-ss tt-cnote' }, 'Xray mode: no per-connection traffic.'));
 		var head = E('div', { 'class': 'tt-crow tt-chead' }, [ E('span', {}, 'Device'), E('span', {}, 'Site'), E('span', {}, 'Account'), E('span', {}, 'Speed'), E('span', {}, 'Total'), E('span', {}, 'Time') ]);
 		var box = E('div', { 'class': 'tt-clist' }, [ head ]);
 		rows.slice(0, 200).forEach(function(x) {
@@ -2452,7 +2476,7 @@ return view.extend({
 	renderLog: function() {
 		var self = this;
 		this.refs.log = E('div', { 'class': 'tt-logbox tall' });
-		return [ trows([ trow('Log', 'What the tunnel did, newest at the bottom. Debug shows payload parts and raw server replies.', [], [
+		return [ trows([ trow('Log', 'Newest at the bottom. Debug shows raw replies.', [], [
 			row('Level', select(this.get('log_level', 'info'), [ [ 'info', 'Info' ], [ 'debug', 'Debug (payload parts, raw replies)' ], [ 'error', 'Errors only' ] ], function(v) {
 				self.set('log_level', v);
 				self.commit('Log level saved (applies on the next restart).');
@@ -2481,11 +2505,10 @@ return view.extend({
 			section('Update', [
 				this.refs.updInfo,
 				this.refs.updLog,
-				row('GitHub repository', textInput(g('update_repo', 'dudul19/tomato-tunnel'), function(v) { self.set('update_repo', v.trim()); }, { 'spellcheck': 'false' })),
 				row('Channel', select(g('update_channel', 'stable'), [ [ 'stable', 'Stable' ], [ 'beta', 'Beta (pre-release)' ] ], function(v) { self.set('update_channel', v); })),
-				row('Daily check', checkbox(g('update_check', '1') === '1', function(v) { self.set('update_check', v ? '1' : '0'); }), 'Shows a notice on the Dashboard; never installs by itself.'),
+				row('Daily check', checkbox(g('update_check', '1') === '1', function(v) { self.set('update_check', v ? '1' : '0'); }), 'Notice only, never installs by itself.'),
 				E('div', { 'class': 'tt-actions' }, button('Save', 'save', function() { self.commit(); }))
-			], 'Installs the new release from GitHub (SHA256 checked). Settings are kept.'),
+			], 'Installs from GitHub. Settings are kept.'),
 			this.renderXrayBox(),
 			section('Credits', [
 				E('div', { 'class': 'tt-author' }, [
@@ -2496,8 +2519,8 @@ return view.extend({
 					]),
 					E('div', { 'class': 'tt-authb' }, [
 						E('a', { 'class': 'btn cbi-button cbi-button-action', 'href': 'https://t.me/tfnuklir', 'target': '_blank', 'rel': 'noopener' }, 'Group'),
-						E('a', { 'class': 'btn cbi-button cbi-button-neutral', 'href': 'https://github.com/' + (g('update_repo', 'dudul19/tomato-tunnel')) + '/blob/main/docs/GUIDE.md', 'target': '_blank', 'rel': 'noopener' }, 'Guide'),
-						E('a', { 'class': 'btn cbi-button cbi-button-neutral', 'href': 'https://github.com/' + (g('update_repo', 'dudul19/tomato-tunnel')), 'target': '_blank', 'rel': 'noopener' }, 'Source on GitHub')
+						E('a', { 'class': 'btn cbi-button cbi-button-neutral', 'href': 'https://github.com/' + REPO + '/blob/main/docs/GUIDE.md', 'target': '_blank', 'rel': 'noopener' }, 'Guide'),
+						E('a', { 'class': 'btn cbi-button cbi-button-neutral', 'href': 'https://github.com/' + REPO, 'target': '_blank', 'rel': 'noopener' }, 'Source on GitHub')
 					])
 				]),
 				E('h4', { 'class': 'tt-thxh' }, 'Thanks to'),
@@ -2526,12 +2549,12 @@ return view.extend({
 		return section('Xray add-on', [
 			table(null, [
 				[ E('strong', {}, 'Status'), on ? E('span', { 'class': 'tt-ok' }, this.xrayVer) : E('span', { 'class': 'tt-muted' }, 'Not installed') ]
-			].concat(this.xraySys ? [ [ E('strong', {}, 'System xray-core'), E('span', {}, [ this.xraySys.split(' (')[0], E('br'), E('small', { 'class': 'tt-muted' }, 'Found (for example from PassWall). Not used: Tomato Tunnel needs its own build, which keeps Allow insecure.') ]) ] ] : [])),
+			].concat(this.xraySys ? [ [ E('strong', {}, 'System xray-core'), E('span', {}, [ this.xraySys.split(' (')[0], E('br'), E('small', { 'class': 'tt-muted' }, 'Found (e.g. PassWall) but not used: own build needed.') ]) ] ] : [])),
 			E('div', { 'class': 'tt-actions' }, on
 				? button('Remove Xray', 'remove', function(ev) { self.installXray(ev.currentTarget, log, true); })
 				: button('Install Xray', 'apply', function(ev) { self.installXray(ev.currentTarget, log); })),
 			log
-		], 'Needed only for Xray accounts (VLESS, VMess, Trojan, REALITY). About 30 MB on flash. Updated together with Tomato Tunnel.');
+		], 'For Xray accounts only. ~30 MB, updated with Tomato Tunnel.');
 	},
 
 	paintUpdate: function() {

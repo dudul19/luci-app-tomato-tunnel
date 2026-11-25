@@ -4,6 +4,8 @@ TABLE=1080
 PREF_MAIN=1070
 PREF_BYPASS=1075
 PREF_TUN=1080
+PREF_TS=1072
+TSMARK=0x80000/0xff0000
 STATE=/etc/tomato-tunnel
 IDLIST=/usr/share/tomato-tunnel/cidr-id.txt
 IDMARK=0x7454
@@ -21,7 +23,7 @@ is_v6() { case "$1" in *:*) return 0;; esac; return 1; }
 
 rules_del() {
 	for fam in -4 -6; do
-		for p in $PREF_MAIN $PREF_BYPASS $PREF_TUN; do
+		for p in $PREF_MAIN $PREF_TS $PREF_BYPASS $PREF_TUN; do
 			while ip $fam rule del pref $p 2>/dev/null; do :; done
 		done
 		ip $fam route flush table $TABLE 2>/dev/null
@@ -46,6 +48,7 @@ tun_up() {
 		ip $f rule add pref $PREF_BYPASS from "$b" lookup main 2>/dev/null
 		ip $f rule add pref $PREF_BYPASS to "$b" lookup main 2>/dev/null
 	done
+	ts_up
 	byp_id_up
 	fw_allow
 	acct_up
@@ -54,6 +57,27 @@ tun_up() {
 		iptables -C FORWARD -i "$TUN" -o "$LAN" -j ACCEPT 2>/dev/null || iptables -I FORWARD -i "$TUN" -o "$LAN" -j ACCEPT
 	fi
 	log "LAN ($LAN) routed through $TUN, table $TABLE"
+}
+
+# Tailscale on the router (Settings › Network › Tailscale, auto = when it is
+# installed). All rules sit before Tailscale's own (5210-5270):
+# - its own traffic (login, DERP relays, WireGuard), marked 0x80000 by
+#   tailscaled, goes through the tunnel: most packages have no regular quota;
+# - LAN to 100.x and Tailscale subnets uses Tailscale's table 52, without its
+#   default route, so an exit node or odd route can never take the tunnel's place;
+# - traffic from tailscale0 (the router used as exit node) goes through the tunnel.
+# Tomato Tunnel's own server connection is bound to the modem, so none of this
+# can loop it back into the tunnel. The firewall part (Tailscale devices may
+# open the router, LAN to 100.x) is in /usr/share/nftables.d and always on.
+ts_up() {
+	case "$(uci -q get tomato-tunnel.main.tailscale)" in 0|off) return 0 ;; esac
+	[ -x /usr/sbin/tailscaled ] || return 0
+	for fam in -4 -6; do
+		ip $fam rule add pref $PREF_TS lookup 52 suppress_prefixlength 0 2>/dev/null
+		ip $fam rule add pref $PREF_TS fwmark $TSMARK lookup $TABLE 2>/dev/null
+		ip $fam rule add pref $PREF_TS iif tailscale0 lookup $TABLE 2>/dev/null
+	done
+	log "Tailscale goes through the tunnel"
 }
 
 fw_allow() {

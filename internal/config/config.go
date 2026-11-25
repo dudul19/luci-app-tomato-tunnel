@@ -40,10 +40,11 @@ type Main struct {
 	ManageDnsmasq bool
 	Bypass        []string
 	BypassID      bool
-	BalanceSticky bool // Balance: keep each destination on one account
-	UnifiedDelay  bool // ping = second request on a warm connection, handshakes left out (like Clash unified-delay)
-	FallbackBack  bool // Fallback: go back to the chosen account once it works again
-	BlockQUIC     bool // drop UDP 443 so browsers and apps use TCP
+	BalanceSticky bool   // Balance: keep each destination on one account
+	UnifiedDelay  bool   // ping = second request on a warm connection, handshakes left out (like Clash unified-delay)
+	FallbackBack  bool   // Fallback: go back to the chosen account once it works again
+	BlockQUIC     bool   // drop UDP 443 so browsers and apps use TCP (on, or auto)
+	QUICMode      string // block_quic: "auto" (default), "on" or "off"
 	BlockAds      bool
 	DirectDomains []string
 	LogLevel      string
@@ -161,10 +162,12 @@ type Config struct {
 // Schedule: at Time (HH:MM) on Days, use an account (Action "account",
 // Value = profile ID), a profile selection mode (Action "policy"), or keep
 // the tunnel off or on from Time to End (Action "tunnel", Value "off"/"on").
+// An account or mode schedule with an End goes back to the account or mode
+// used before at End; without one the change stays.
 type Schedule struct {
 	ID      string
 	Time    string
-	End     string // Action "tunnel": end of the window (HH:MM)
+	End     string // end of the window (HH:MM); optional for account and mode
 	Days    string // daily, weekdays, weekend, or mon,tue,…
 	Action  string
 	Value   string
@@ -293,7 +296,7 @@ func defaults() Main {
 		LanIface: "br-lan", Sessions: 1,
 		CheckURL: "http://cp.cloudflare.com/generate_204", CheckInterval: 5, CheckFail: 3,
 		Failover: true, Policy: "fallback", ModemIface: "wwan", SSHCompat: "auto", DNSMode: "tunnel", DNSServer: "1.1.1.1",
-		ManageDnsmasq: true, LogLevel: "info", UpdateRepo: "dudul19/tomato-tunnel", UpdateChannel: "stable", UpdateCheck: true,
+		ManageDnsmasq: true, LogLevel: "info", UpdateRepo: Repo, UpdateChannel: "stable", UpdateCheck: true,
 		ExpiryWarn: 3, UsageResetDay: 1,
 		IP: ChangeIP{Method: "none", Iface: "wwan", ATPort: "/dev/ttyUSB2", ATOff: "AT+CFUN=4", ATOn: "AT+CFUN=1", MMModem: "0",
 			HilinkAddr: "192.168.8.1", HilinkUser: "admin", Wait: 5, AfterN: 3, Button: true, MaxTries: 5},
@@ -327,7 +330,7 @@ func readMain(m *Main, s *uci.Section) {
 	m.DNSServer = s.Get("dns_server", m.DNSServer)
 	m.ManageDnsmasq = b(s, "manage_dnsmasq", m.ManageDnsmasq)
 	m.LogLevel = oneOf(s.Get("log_level", m.LogLevel), m.LogLevel, "info", "debug", "error")
-	m.UpdateRepo = s.Get("update_repo", m.UpdateRepo)
+	m.UpdateRepo = Repo // fixed: updates and the Xray add-on only come from the official repo
 	m.UpdateChannel = oneOf(s.Get("update_channel", m.UpdateChannel), m.UpdateChannel, "stable", "beta")
 	m.UpdateCheck = b(s, "update_check", m.UpdateCheck)
 	m.ExpiryWarn = n(s, "expiry_warn", m.ExpiryWarn, 0, 60)
@@ -350,7 +353,8 @@ func readMain(m *Main, s *uci.Section) {
 	m.BalanceSticky = b(s, "balance_sticky", false)
 	m.UnifiedDelay = b(s, "unified_delay", true)
 	m.FallbackBack = b(s, "fallback_return", true)
-	m.BlockQUIC = b(s, "block_quic", false)
+	m.QUICMode = quicMode(s.Options["block_quic"])
+	m.BlockQUIC = m.QUICMode != "off"
 	m.BlockAds = b(s, "block_ads", m.BlockAds)
 	for _, v := range s.Lists["direct_domain"] {
 		v = strings.ToLower(strings.TrimSpace(strings.SplitN(v, "#", 2)[0]))
@@ -627,6 +631,24 @@ func (c *Config) Find(id string) (Profile, bool) {
 		}
 	}
 	return Profile{}, false
+}
+
+// quicMode reads block_quic. Empty or "auto" is Auto: QUIC is blocked unless
+// the account carries UDP natively (ZiVPN). YouTube and browsers use QUIC, and
+// QUIC carried inside TCP (Xray WS/gRPC/TCP, SSH UDPGW) stalls on every lost
+// or late packet, which shows as a frozen video or "Something went wrong".
+// Repo is where updates and the Xray add-on come from. It cannot be changed in
+// the settings, so a router never installs a build from someone else's repo.
+const Repo = "dudul19/tomato-tunnel"
+
+func quicMode(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "on", "yes", "true", "enabled":
+		return "on"
+	case "0", "off", "no", "false", "disabled":
+		return "off"
+	}
+	return "auto"
 }
 
 func b(s *uci.Section, k string, def bool) bool {

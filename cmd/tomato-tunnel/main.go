@@ -280,7 +280,7 @@ func doXray(cmd string) int {
 	cfg, err := config.Load(config.DefaultPath)
 	if err != nil {
 		cfg = &config.Config{}
-		cfg.Main.UpdateRepo, cfg.Main.UpdateChannel, cfg.Main.SocksPort = "dudul19/tomato-tunnel", "stable", 1080
+		cfg.Main.UpdateRepo, cfg.Main.UpdateChannel, cfg.Main.SocksPort = config.Repo, "stable", 1080
 	}
 	cl := updateClient(cfg)
 	fmt.Println("checking GitHub")
@@ -300,7 +300,7 @@ func doUpdate(cmd string) int {
 	cfg, err := config.Load(config.DefaultPath)
 	if err != nil {
 		cfg = &config.Config{}
-		cfg.Main.UpdateRepo = "dudul19/tomato-tunnel"
+		cfg.Main.UpdateRepo = config.Repo
 		cfg.Main.UpdateChannel = "stable"
 		cfg.Main.SocksPort = 1080
 	}

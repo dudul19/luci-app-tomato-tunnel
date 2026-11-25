@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -9,7 +13,12 @@ import (
 	"runtime/debug"
 	"syscall"
 
+	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/inbound"
+	"github.com/xtls/xray-core/features/outbound"
+	"github.com/xtls/xray-core/features/routing"
+	jsonconf "github.com/xtls/xray-core/infra/conf/serial"
 
 	_ "github.com/xtls/xray-core/app/dispatcher"
 	_ "github.com/xtls/xray-core/app/dns"
@@ -43,6 +52,7 @@ func main() {
 	cfg := flag.String("c", "", "config file")
 	test := flag.Bool("test", false, "test config only")
 	ver := flag.Bool("version", false, "print version")
+	ctl := flag.Bool("ctl", false, "read add/rm commands on stdin (Tomato Tunnel Balance)")
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		os.Args[1] = "-version"
 	}
@@ -83,8 +93,103 @@ func main() {
 		os.Exit(1)
 	}
 	debug.FreeOSMemory()
+	if *ctl {
+		go control(inst)
+	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 	inst.Close()
+}
+
+// control lets Tomato Tunnel run every Balance account in this one process:
+// each line on stdin is {"op":"add","tag":T,"conf":{inbounds,outbounds,routing}}
+// or {"op":"rm","tag":T}, answered on stdout with "@tt ok T" or "@tt err T msg".
+// The inbound, outbound and rule of account T are tagged in-T, out-T and r-T.
+// When stdin closes (Tomato Tunnel stopped or died) the process exits, so no
+// Xray is left behind.
+func control(inst *core.Instance) {
+	sc := bufio.NewScanner(os.Stdin)
+	sc.Buffer(make([]byte, 64*1024), 1<<20)
+	for sc.Scan() {
+		var m struct {
+			Op   string          `json:"op"`
+			Tag  string          `json:"tag"`
+			Conf json.RawMessage `json:"conf"`
+		}
+		var err error
+		if err = json.Unmarshal(sc.Bytes(), &m); err == nil {
+			switch m.Op {
+			case "add":
+				if err = ctlAdd(inst, m.Conf); err != nil {
+					ctlRm(inst, m.Tag)
+				}
+			case "rm":
+				ctlRm(inst, m.Tag)
+			default:
+				err = fmt.Errorf("unknown op %q", m.Op)
+			}
+		}
+		if err != nil {
+			fmt.Printf("@tt err %s %s\n", m.Tag, bytes.ReplaceAll([]byte(err.Error()), []byte("\n"), []byte(" ")))
+		} else {
+			fmt.Printf("@tt ok %s\n", m.Tag)
+		}
+	}
+	inst.Close()
+	os.Exit(0)
+}
+
+// ctlAdd adds the outbounds first, then the rules, then the inbounds, so no
+// connection can arrive before it has somewhere to go.
+func ctlAdd(inst *core.Instance, raw []byte) error {
+	c, err := jsonconf.DecodeJSONConfig(bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	for _, o := range c.OutboundConfigs {
+		oc, err := o.Build()
+		if err != nil {
+			return err
+		}
+		if err := core.AddOutboundHandler(inst, oc); err != nil {
+			return err
+		}
+	}
+	if c.RouterConfig != nil {
+		rc, err := c.RouterConfig.Build()
+		if err != nil {
+			return err
+		}
+		r, ok := inst.GetFeature(routing.RouterType()).(routing.Router)
+		if !ok {
+			return fmt.Errorf("no router")
+		}
+		if err := r.AddRule(serial.ToTypedMessage(rc), true); err != nil {
+			return err
+		}
+	}
+	for _, i := range c.InboundConfigs {
+		ic, err := i.Build()
+		if err != nil {
+			return err
+		}
+		if err := core.AddInboundHandler(inst, ic); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ctlRm(inst *core.Instance, tag string) {
+	ctx := context.Background()
+	if im, ok := inst.GetFeature(inbound.ManagerType()).(inbound.Manager); ok {
+		im.RemoveHandler(ctx, "in-"+tag)
+	}
+	if r, ok := inst.GetFeature(routing.RouterType()).(routing.Router); ok {
+		r.RemoveRule("r-" + tag)
+	}
+	if om, ok := inst.GetFeature(outbound.ManagerType()).(outbound.Manager); ok {
+		om.RemoveHandler(ctx, "out-"+tag)
+	}
 }

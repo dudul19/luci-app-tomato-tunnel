@@ -176,7 +176,17 @@ func (d *Daemon) track(c net.Conn, addr, account string) net.Conn {
 }
 
 // BlockQUIC: the "Block QUIC" setting (read live, so Save applies it at once).
-func (d *Daemon) BlockQUIC() bool { return d.cfg.Main.BlockQUIC }
+// Auto blocks it unless the main account is ZiVPN, which carries UDP as UDP.
+func (d *Daemon) BlockQUIC() bool {
+	switch d.cfg.Main.QUICMode {
+	case "on":
+		return true
+	case "off":
+		return false
+	}
+	p := d.pool.Load()
+	return p == nil || !p.IsZivpn()
+}
 
 // NativeUDPTo: a flow to a Direct domain leaves through the modem, the rest as NativeUDP.
 func (d *Daemon) NativeUDPTo(dst *net.UDPAddr, onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
@@ -195,10 +205,14 @@ func (d *Daemon) NativeUDPTo(dst *net.UDPAddr, onPacket func(src *net.UDPAddr, d
 		fp.Store(f)
 		return &trackRelay{UDPRelay: r, f: f, t: &d.flows}, true, nil
 	}
-	return d.NativeUDP(onPacket)
+	return d.nativeUDPFor(dst, onPacket)
 }
 
 func (d *Daemon) NativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
+	return d.nativeUDPFor(nil, onPacket)
+}
+
+func (d *Daemon) nativeUDPFor(dst *net.UDPAddr, onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
 	var fp atomic.Pointer[flow]
 	counted := func(src *net.UDPAddr, data []byte) {
 		if f := fp.Load(); f != nil {
@@ -206,7 +220,7 @@ func (d *Daemon) NativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (proxy.
 		}
 		onPacket(src, data)
 	}
-	r, native, err := d.nativeUDP(counted)
+	r, native, err := d.nativeUDP(dst, counted)
 	if r == nil || err != nil {
 		return r, native, err
 	}
@@ -221,10 +235,10 @@ func (d *Daemon) NativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (proxy.
 	return &trackRelay{UDPRelay: r, f: f, t: &d.flows}, native, nil
 }
 
-func (d *Daemon) nativeUDP(onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
+func (d *Daemon) nativeUDP(dst *net.UDPAddr, onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
 	p := d.pool.Load()
 	if d.balancing() {
-		if r, ok := d.balanceUDP(p, onPacket); ok {
+		if r, ok := d.balanceUDP(p, dst, onPacket); ok {
 			return r, true, nil
 		}
 	}
@@ -447,7 +461,7 @@ func (d *Daemon) stopHev() {
 }
 
 func XrayOpts(m config.Main) tunnel.XrayOpts {
-	return tunnel.XrayOpts{DirectDomains: m.DirectDomains, BlockAds: m.BlockAds, BlockQUIC: m.BlockQUIC, CheckURL: m.CheckURL, RunDir: RunDir}
+	return tunnel.XrayOpts{DirectDomains: m.DirectDomains, BlockAds: m.BlockAds, BlockQUIC: m.QUICMode != "off", CheckURL: m.CheckURL, RunDir: RunDir}
 }
 
 func (d *Daemon) newPool(p config.Profile) *tunnel.Pool {
@@ -458,6 +472,9 @@ func (d *Daemon) newPool(p config.Profile) *tunnel.Pool {
 	}
 	np := tunnel.NewPool(p, m.SSHCompat, iface, d.log)
 	np.X = XrayOpts(m)
+	// Balance: every Xray account in one shared Xray process (about 40 MB less
+	// per extra account); the main one too, since it takes turns with the others
+	np.X.Shared = d.balancing()
 	return np
 }
 
@@ -827,7 +844,11 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 			ms, err := check(pool, m.CheckURL, m.UnifiedDelay)
 			if err != nil {
 				failed++
-				d.mainBad.Store(true)
+				if failed >= pauseAfter {
+					// one slow answer (a busy link, a hiccup at the bug host) is not
+					// enough to pause the main account or hand it over in Balance
+					d.mainBad.Store(true)
+				}
 				d.log.Warnf("ping", "Ping %s failed: %s (%d/%d)", host, shortErr(err), failed, m.CheckFail)
 				if failed >= m.CheckFail {
 					return monResult{reason: fmt.Sprintf("check failed %d×", failed)}

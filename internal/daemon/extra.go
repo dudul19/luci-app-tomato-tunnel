@@ -81,7 +81,7 @@ func (d *Daemon) reloadSettings() {
 	m.IP, m.ExpiryWarn, m.UsageResetDay, m.UsageQuotaGB = c.Main.IP, c.Main.ExpiryWarn, c.Main.UsageResetDay, c.Main.UsageQuotaGB
 	m.IPTarget, m.Modems = c.Main.IPTarget, c.Main.Modems
 	m.BalanceSticky = c.Main.BalanceSticky
-	m.FallbackBack, m.BlockQUIC = c.Main.FallbackBack, c.Main.BlockQUIC
+	m.FallbackBack, m.BlockQUIC, m.QUICMode = c.Main.FallbackBack, c.Main.BlockQUIC, c.Main.QUICMode
 	go d.modemStatus()
 	m.UpdateCheck, m.UpdateRepo, m.UpdateChannel = c.Main.UpdateCheck, c.Main.UpdateRepo, c.Main.UpdateChannel
 	if len(c.Profiles) > 0 {

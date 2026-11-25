@@ -148,3 +148,11 @@ func TestBypassEntry(t *testing.T) {
 		}
 	}
 }
+
+func TestQUICMode(t *testing.T) {
+	for v, want := range map[string]string{"": "auto", "auto": "auto", "1": "on", "on": "on", "0": "off", "off": "off", "junk": "auto"} {
+		if got := quicMode(v); got != want {
+			t.Errorf("quicMode(%q) = %q, want %q", v, got, want)
+		}
+	}
+}

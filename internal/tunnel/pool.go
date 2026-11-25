@@ -368,6 +368,7 @@ type countConn struct {
 	net.Conn
 	p    *Pool
 	s    *slot
+	xr   *xrayProc // shared Xray account: forget the connection on Close
 	once sync.Once
 }
 
@@ -396,6 +397,7 @@ func (c *countConn) Close() error {
 			c.s.active.Add(-1)
 		}
 		c.p.streams.Add(-1)
+		c.xr.untrack(c.Conn)
 	})
 	return c.Conn.Close()
 }

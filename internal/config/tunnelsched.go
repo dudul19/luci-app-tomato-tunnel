@@ -35,6 +35,16 @@ func (s Schedule) IsTunnel() bool {
 	return ok1 && ok2 && a != b
 }
 
+// HasEnd reports whether an account or mode schedule switches back at End.
+func (s Schedule) HasEnd() bool {
+	if s.Action == "tunnel" {
+		return false
+	}
+	a, ok1 := hm(s.Time)
+	b, ok2 := hm(s.End)
+	return ok1 && ok2 && a != b
+}
+
 // dayMatch says whether a window may start on weekday wd.
 func (s Schedule) dayMatch(wd time.Weekday) bool {
 	switch s.Days {

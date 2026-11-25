@@ -23,6 +23,7 @@ import (
 )
 
 type XrayOpts struct {
+	Shared        bool // Balance: the account goes into the shared Xray (xrayhub.go)
 	DirectDomains []string
 	BlockAds      bool
 	BlockQUIC     bool // UDP 443 to blackhole, so clients fall back to TCP
@@ -72,6 +73,14 @@ type xrayProc struct {
 	mu     sync.Mutex
 	tail   []string
 	exited bool
+
+	// an account in the shared Xray (xrayhub.go): tag, the process, and the
+	// connections to close when the account is removed
+	tag    string
+	parent *xrayProc
+	conns  map[any]func()
+	gone   bool
+	refs   int // on the shared process: accounts in it (under hub.mu)
 }
 
 func (x *xrayProc) addLine(l string) {
@@ -84,6 +93,9 @@ func (x *xrayProc) addLine(l string) {
 }
 
 func (x *xrayProc) lastErr() string {
+	if x.parent != nil {
+		return x.parent.lastErr()
+	}
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	for i := len(x.tail) - 1; i >= 0; i-- {
@@ -112,6 +124,10 @@ func cleanXrayLine(l string) string {
 }
 
 func (x *xrayProc) stop() {
+	if x != nil && x.tag != "" {
+		x.leave()
+		return
+	}
 	if x == nil || x.cmd == nil || x.cmd.Process == nil {
 		return
 	}
@@ -135,14 +151,96 @@ func publicIP(h string) bool {
 	return !(ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified())
 }
 
+// errNotShared: this account cannot go into the shared Xray (see xrayOutbound).
+var errNotShared = errors.New("account needs its own Xray")
+
 func XrayConfig(p config.Profile, port int, iface, serverIP string, o XrayOpts) ([]byte, error) {
+	proxyOut, hosts, err := xrayOutbound(p, iface, serverIP, false)
+	if err != nil {
+		return nil, err
+	}
+	direct := map[string]any{"tag": "direct", "protocol": "freedom"}
+	if iface != "" {
+		direct["streamSettings"] = map[string]any{"sockopt": map[string]any{"interface": iface}}
+	}
+	outs := []any{proxyOut, direct, map[string]any{"tag": "block", "protocol": "blackhole"}}
+
+	var rules []any
+	if len(o.DirectDomains) > 0 {
+		var ds []string
+		for _, d := range o.DirectDomains {
+			ds = append(ds, "domain:"+d)
+		}
+		rules = append(rules, map[string]any{"type": "field", "domain": ds, "outboundTag": "direct"})
+	}
+	rules = append(rules, xrayBlockRules(o)...)
+
+	in := map[string]any{"tag": "in", "listen": "127.0.0.1", "port": port, "protocol": "socks",
+		"settings": map[string]any{"auth": "noauth", "udp": true, "ip": "127.0.0.1"}}
+	if len(rules) > 0 {
+		in["sniffing"] = map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true}
+	}
+	cfg := map[string]any{
+		"log":       map[string]any{"loglevel": "warning"},
+		"inbounds":  []any{in},
+		"outbounds": outs,
+		"policy":    xrayPolicy(),
+	}
+	if len(hosts) > 0 {
+		cfg["dns"] = map[string]any{"hosts": hosts, "servers": []string{"localhost"}}
+	}
+	if len(rules) > 0 {
+		cfg["routing"] = map[string]any{"domainStrategy": "AsIs", "rules": rules}
+	}
+	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// Xray closes a connection idle for 300 s by default, which cuts push
+// channels (FCM, WhatsApp) between their heartbeats.
+func xrayPolicy() map[string]any {
+	return map[string]any{"levels": map[string]any{"0": map[string]any{"connIdle": int(IdleTCP.Seconds())}}}
+}
+
+// xrayBlockRules: Block QUIC and Block ads, the same for every account.
+func xrayBlockRules(o XrayOpts) []any {
+	var rules []any
+	if o.BlockQUIC {
+		rules = append(rules, map[string]any{"type": "field", "network": "udp", "port": "443", "outboundTag": "block"})
+	}
+	if o.BlockAds {
+		var ds []string
+		for _, d := range adDomains {
+			ds = append(ds, "domain:"+d)
+		}
+		rules = append(rules, map[string]any{"type": "field", "domain": ds, "outboundTag": "block"})
+	}
+	return rules
+}
+
+// xrayOutbound builds the proxy outbound of one account (tag "proxy") and the
+// DNS hosts it needs. The server name is looked up by Tomato Tunnel through
+// the right modem (serverIP) and handed to Xray as a DNS host, because Xray's
+// own lookup would go through the tunnel DNS. A shared Xray has one DNS for
+// every account, so there (shared) the outbound dials serverIP itself, and
+// Host, SNI and gRPC authority are set to the server name where Xray would
+// otherwise have taken them from the address. A VLESS account without TLS on a
+// bare public IP keeps its own Xray (it relies on a DNS alias).
+func xrayOutbound(p config.Profile, iface, serverIP string, shared bool) (map[string]any, map[string]any, error) {
 	addr := p.Host
 	hosts := map[string]any{}
+	name := "" // server name to fill in where Xray would use the address
 	if net.ParseIP(addr) == nil {
 		if serverIP != "" {
-			hosts[addr] = serverIP
+			if shared {
+				name, addr = p.Host, serverIP
+			} else {
+				hosts[addr] = serverIP
+			}
 		}
 	} else if p.XProto == "vless" && p.XSec == "none" && publicIP(addr) {
+		if shared {
+			return nil, nil, errNotShared
+		}
 		alias := "tt-" + strings.NewReplacer(".", "-", ":", "-").Replace(addr) + ".internal"
 		hosts[alias] = addr
 		addr = alias
@@ -162,7 +260,7 @@ func XrayConfig(p config.Profile, port int, iface, serverIP string, o XrayOpts) 
 	case "trojan":
 		settings = map[string]any{"servers": []any{map[string]any{"address": addr, "port": p.Port, "password": p.Pass}}}
 	default:
-		return nil, fmt.Errorf("unknown Xray protocol %q", p.XProto)
+		return nil, nil, fmt.Errorf("unknown Xray protocol %q", p.XProto)
 	}
 
 	hostHdr := p.XHost
@@ -171,6 +269,19 @@ func XrayConfig(p config.Profile, port int, iface, serverIP string, o XrayOpts) 
 		sni = hostHdr
 		if sni == "" && net.ParseIP(p.Host) == nil {
 			sni = p.Host
+		}
+	}
+	if name != "" {
+		if sni == "" && p.XSec == "reality" {
+			sni = name
+		}
+		// Xray takes Host (and gRPC :authority) from the setting, else the
+		// TLS/REALITY server name, else the address, which is now an IP
+		if hostHdr == "" {
+			hostHdr = sni
+			if hostHdr == "" {
+				hostHdr = name
+			}
 		}
 	}
 	ss := map[string]any{"network": p.XNet, "security": p.XSec}
@@ -195,7 +306,14 @@ func XrayConfig(p config.Profile, port int, iface, serverIP string, o XrayOpts) 
 		}
 		ss["httpupgradeSettings"] = hu
 	case "grpc":
-		ss["grpcSettings"] = map[string]any{"serviceName": p.XService}
+		g := map[string]any{"serviceName": p.XService}
+		if name != "" { // as Xray would pick it: TLS server name, else the server name
+			g["authority"] = name
+			if p.XSec == "tls" && sni != "" {
+				g["authority"] = sni
+			}
+		}
+		ss["grpcSettings"] = g
 	case "xhttp":
 		xh := map[string]any{"path": path, "mode": p.XMode}
 		if hostHdr != "" {
@@ -237,52 +355,7 @@ func XrayConfig(p config.Profile, port int, iface, serverIP string, o XrayOpts) 
 		ss["sockopt"] = sock
 	}
 
-	proxyOut := map[string]any{"tag": "proxy", "protocol": p.XProto, "settings": settings, "streamSettings": ss}
-	direct := map[string]any{"tag": "direct", "protocol": "freedom"}
-	if iface != "" {
-		direct["streamSettings"] = map[string]any{"sockopt": map[string]any{"interface": iface}}
-	}
-	outs := []any{proxyOut, direct, map[string]any{"tag": "block", "protocol": "blackhole"}}
-
-	var rules []any
-	if len(o.DirectDomains) > 0 {
-		var ds []string
-		for _, d := range o.DirectDomains {
-			ds = append(ds, "domain:"+d)
-		}
-		rules = append(rules, map[string]any{"type": "field", "domain": ds, "outboundTag": "direct"})
-	}
-	if o.BlockQUIC {
-		rules = append(rules, map[string]any{"type": "field", "network": "udp", "port": "443", "outboundTag": "block"})
-	}
-	if o.BlockAds {
-		var ds []string
-		for _, d := range adDomains {
-			ds = append(ds, "domain:"+d)
-		}
-		rules = append(rules, map[string]any{"type": "field", "domain": ds, "outboundTag": "block"})
-	}
-
-	in := map[string]any{"tag": "in", "listen": "127.0.0.1", "port": port, "protocol": "socks",
-		"settings": map[string]any{"auth": "noauth", "udp": true, "ip": "127.0.0.1"}}
-	if len(rules) > 0 {
-		in["sniffing"] = map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true}
-	}
-	cfg := map[string]any{
-		"log":       map[string]any{"loglevel": "warning"},
-		"inbounds":  []any{in},
-		"outbounds": outs,
-		// Xray closes a connection idle for 300 s by default, which cuts push
-		// channels (FCM, WhatsApp) between their heartbeats.
-		"policy": map[string]any{"levels": map[string]any{"0": map[string]any{"connIdle": int(IdleTCP.Seconds())}}},
-	}
-	if len(hosts) > 0 {
-		cfg["dns"] = map[string]any{"hosts": hosts, "servers": []string{"localhost"}}
-	}
-	if len(rules) > 0 {
-		cfg["routing"] = map[string]any{"domainStrategy": "AsIs", "rules": rules}
-	}
-	return json.MarshalIndent(cfg, "", "  ")
+	return map[string]any{"tag": "proxy", "protocol": p.XProto, "settings": settings, "streamSettings": ss}, hosts, nil
 }
 
 func freePort() (int, error) {
@@ -319,9 +392,35 @@ func (p *Pool) connectXray(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	t0 := time.Now()
+	var x *xrayProc
+	if p.X.Shared {
+		out, _, err := xrayOutbound(pr, p.dialer.Iface, serverIP, true)
+		if err == nil {
+			x, err = hub.add(cctx, p.Log, p.X, port, out)
+			if err == nil {
+				p.Log.Infof("xray", "Added to the shared Xray, connecting to %s:%d", pr.Host, pr.Port)
+			}
+		}
+		if err != nil && err != errNotShared {
+			return fmt.Errorf("Xray: %v", err)
+		}
+	}
+	if x == nil {
+		if x, err = p.startXray(port, serverIP); err != nil {
+			return err
+		}
+	}
+	return p.xrayUp(cctx, x, t0)
+}
+
+// startXray runs an Xray process of this account alone.
+func (p *Pool) startXray(port int, serverIP string) (*xrayProc, error) {
+	pr := p.P
+	bin := XrayBin()
 	b, err := XrayConfig(pr, port, p.dialer.Iface, serverIP, p.X)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	dir := p.X.RunDir
 	if dir == "" {
@@ -330,17 +429,16 @@ func (p *Pool) connectXray(ctx context.Context) error {
 	os.MkdirAll(dir, 0700)
 	conf := filepath.Join(dir, fmt.Sprintf("xray-%d.json", port))
 	if err := os.WriteFile(conf, b, 0600); err != nil {
-		return err
+		return nil, err
 	}
 	cmd := exec.Command(bin, "run", "-c", conf)
 	cmd.SysProcAttr = xrayProcAttr()
 	out, _ := cmd.StdoutPipe()
 	cmd.Stderr = cmd.Stdout
 	x := &xrayProc{cmd: cmd, port: port, conf: conf, done: make(chan struct{})}
-	t0 := time.Now()
 	if err := cmd.Start(); err != nil {
 		os.Remove(conf)
-		return fmt.Errorf("start Xray: %v", err)
+		return nil, fmt.Errorf("start Xray: %v", err)
 	}
 	xrayLive.Store(cmd.Process.Pid, true)
 	go func() {
@@ -351,6 +449,7 @@ func (p *Pool) connectXray(ctx context.Context) error {
 			x.addLine(l)
 			p.Log.Debugf("xray", "%s", cleanXrayLine(l))
 		}
+		io.Copy(io.Discard, out) // a line too long stops the scanner: keep reading, else Xray blocks
 	}()
 	go func() {
 		cmd.Wait()
@@ -360,13 +459,22 @@ func (p *Pool) connectXray(ctx context.Context) error {
 		x.mu.Unlock()
 		close(x.done)
 	}()
+	return x, nil
+}
 
+// xrayUp waits for the account's local port, then checks that the server
+// answers through it, and watches the Xray (own or shared) afterwards.
+func (p *Pool) xrayUp(cctx context.Context, x *xrayProc, t0 time.Time) error {
+	pr := p.P
+	port := x.port
 	up := false
 	for !up {
 		select {
 		case <-x.done:
 			msg := x.lastErr()
-			os.Remove(conf)
+			if x.conf != "" {
+				os.Remove(x.conf)
+			}
 			if msg == "" {
 				msg = "exited right away"
 			}
@@ -391,7 +499,9 @@ func (p *Pool) connectXray(ctx context.Context) error {
 		x.stop() // the pool was closed while Xray was starting: nobody would stop it later
 		return ErrNoSession
 	}
-	p.Log.Infof("xray", "Xray started (%s), connecting to %s:%d", filepath.Base(bin), pr.Host, pr.Port)
+	if x.tag == "" {
+		p.Log.Infof("xray", "Xray started (%s), connecting to %s:%d", filepath.Base(x.cmd.Path), pr.Host, pr.Port)
+	}
 
 	check := p.X.CheckURL
 	if check == "" {
@@ -420,11 +530,17 @@ func (p *Pool) connectXray(ctx context.Context) error {
 		}
 		return fmt.Errorf("Xray: no answer through the server. Check UUID/password, path, SNI and security (%v)", shortQUIC(lastErr))
 	}
-	os.Remove(conf)
+	if x.conf != "" {
+		os.Remove(x.conf)
+	}
 	p.Log.Okf("xray", "%s connected in %d ms", pr.XrayLabel(), time.Since(t0).Milliseconds())
 	p.Info = &HandshakeInfo{Banner: "Xray " + pr.XrayLabel(), Kex: pr.XSec}
 	go func() {
-		<-x.done
+		select {
+		case <-x.done:
+		case <-p.dead: // closed: the shared Xray may run on for other accounts
+			return
+		}
 		p.mu.Lock()
 		closed := p.closed
 		p.mu.Unlock()
@@ -544,10 +660,13 @@ func (p *Pool) xrayPort() int {
 }
 
 func (p *Pool) dialXray(addr string) (net.Conn, error) {
-	port := p.xrayPort()
-	if port == 0 {
+	p.mu.Lock()
+	x := p.xr
+	p.mu.Unlock()
+	if x == nil {
 		return nil, ErrNoSession
 	}
+	port := x.port
 	a, err := socksAddr(addr)
 	if err != nil {
 		return nil, err
@@ -562,8 +681,12 @@ func (p *Pool) dialXray(addr string) (net.Conn, error) {
 		return nil, err
 	}
 	c.SetDeadline(time.Time{})
+	if !x.track(c, func() { c.Close() }) {
+		c.Close()
+		return nil, ErrNoSession
+	}
 	p.streams.Add(1)
-	return &countConn{Conn: c, p: p}, nil
+	return &countConn{Conn: c, p: p, xr: x}, nil
 }
 
 type XrayUDP struct {
@@ -571,14 +694,18 @@ type XrayUDP struct {
 	pc    *net.UDPConn
 	relay *net.UDPAddr
 	p     *Pool
+	xr    *xrayProc
 	once  sync.Once
 }
 
 func (p *Pool) XrayUDP(onPacket func(src *net.UDPAddr, data []byte)) (*XrayUDP, error) {
-	port := p.xrayPort()
-	if port == 0 {
+	p.mu.Lock()
+	x := p.xr
+	p.mu.Unlock()
+	if x == nil {
 		return nil, ErrNoSession
 	}
+	port := x.port
 	ctrl, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 5*time.Second)
 	if err != nil {
 		return nil, err
@@ -598,7 +725,12 @@ func (p *Pool) XrayUDP(onPacket func(src *net.UDPAddr, data []byte)) (*XrayUDP, 
 		ctrl.Close()
 		return nil, err
 	}
-	u := &XrayUDP{ctrl: ctrl, pc: pc, relay: relay, p: p}
+	u := &XrayUDP{ctrl: ctrl, pc: pc, relay: relay, p: p, xr: x}
+	if !x.track(u, u.Close) {
+		ctrl.Close()
+		pc.Close()
+		return nil, ErrNoSession
+	}
 	go func() {
 		io.Copy(io.Discard, ctrl)
 		u.Close()
@@ -663,6 +795,7 @@ func (u *XrayUDP) Send(dst *net.UDPAddr, data []byte) error {
 
 func (u *XrayUDP) Close() {
 	u.once.Do(func() {
+		u.xr.untrack(u)
 		u.ctrl.Close()
 		u.pc.Close()
 	})

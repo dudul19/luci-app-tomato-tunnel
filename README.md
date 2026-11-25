@@ -26,7 +26,7 @@ feature, setting and payload tag is explained there.
 
 ![Dashboard](docs/screenshots/dashboard-v1.7.0.png)
 
-Dashboard (v1.7.0 shown, same look in v1.7.1) on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
+Dashboard (v1.7.0 shown, same look in v1.7.2) on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
 
 ## Features
 
@@ -48,18 +48,21 @@ Dashboard (v1.7.0 shown, same look in v1.7.1) on ImmortalWrt with the router's o
   once it works again), Auto (fastest) and **Balance**:
   several accounts at once, each on its own modem, so the speed of the modems
   adds up. Weight per account, UDP shared per flow, the account with the best
-  ping becomes the main one by itself.
+  ping becomes the main one by itself, and every Xray account shares one Xray
+  process.
 - **Change IP** for one or several modems: restart interface, AT command,
   ModemManager, HiLink / Orbit or an Android phone over ADB. Can keep trying
   until the IP is in your ranges (`10.0-10.19`, CIDR or prefix).
 - **Usage** per day, account and device, with a quota warning. Account
   expiry reminders.
-- **Schedule**: change the account or the mode at set times, or keep the
+- **Schedule**: use another account or mode until a set time, or keep the
   tunnel off (or on only) in a time window, also after a reboot.
+- **Tailscale** on the router goes through the tunnel, LAN devices reach
+  100.x addresses, and LuCI opens over Tailscale from anywhere.
 - **Telegram bot**: control, alerts and a daily report, English or Bahasa
   Indonesia.
 - Indonesian IPs and chosen domains go direct for every account type, Block
-  QUIC option, small ad block list (Xray).
+  QUIC (Auto, for steadier YouTube), small ad block list (Xray).
 - Updates from GitHub inside LuCI, checked with SHA256.
 
 ## Install
@@ -69,8 +72,8 @@ the [Releases](https://github.com/dudul19/tomato-tunnel/releases/latest) page,
 copy it to `/tmp` and install it:
 
 ```sh
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.1_aarch64_generic.apk   # OpenWrt 25.x and newer
-opkg install /tmp/luci-app-tomato-tunnel_1.7.1_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.2_aarch64_generic.apk   # OpenWrt 25.x and newer
+opkg install /tmp/luci-app-tomato-tunnel_1.7.2_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
 ```
 
 Then open LuCI › Services › Tomato Tunnel. Xray accounts need the Xray add-on:

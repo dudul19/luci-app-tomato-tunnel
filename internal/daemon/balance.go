@@ -25,7 +25,9 @@ import (
 const (
 	stickyFor     = 10 * time.Minute
 	mainEvery     = 30 * time.Second // how often Balance looks for a faster main account
-	mainMinPeriod = 3 * time.Minute  // and the least time between two changes
+	mainMinPeriod = 10 * time.Minute // and the least time between two changes
+	mainWins      = 3                // checks in a row another account must be faster
+	pauseAfter    = 2                // failed checks in a row before an account takes no new connections
 )
 
 type balancer struct {
@@ -47,6 +49,8 @@ type balancer struct {
 	ifDown   map[string]bool          // profile keys whose Go out through interface is down
 	rr       int
 	lastMain time.Time // last automatic change of the main account
+	winKey   string    // account that was faster than the main one at the last look
+	winRuns  int       // looks in a row it was faster
 }
 
 type stick struct {
@@ -93,6 +97,49 @@ func (b *balancer) pick(cs []*tunnel.Pool, rr map[*tunnel.Pool]float64) int {
 	}
 	rr[cs[best]] -= total
 	return best
+}
+
+// keepTogether lists sites whose connections must leave through one account
+// even with BalanceSticky off. YouTube signs every video link for the IP that
+// asked for the page (ip= in the googlevideo URL): a video part fetched through
+// another account, so another server IP, gets HTTP 403 and the player shows
+// "Something went wrong".
+var keepTogether = map[string][]string{
+	"youtube": {"youtube.com", "youtu.be", "youtube-nocookie.com", "googlevideo.com", "ytimg.com", "ggpht.com",
+		"youtubei.googleapis.com", "youtube.googleapis.com", "yt3.googleusercontent.com"},
+}
+
+// siteGroup returns the keepTogether group of host (an IP or a name), or "".
+// For an IP the name comes from the tunnel DNS answers.
+func (d *Daemon) siteGroup(host string) string {
+	name := strings.ToLower(host)
+	if ip := net.ParseIP(host); ip != nil {
+		name = d.flows.nameOf(ip.String())
+	}
+	if name == "" {
+		return ""
+	}
+	for g, list := range keepTogether {
+		if directMatch(name, list) {
+			return g
+		}
+	}
+	return ""
+}
+
+// stuck returns the index in cs of the account key is stuck to, or -1.
+// Call with b.mu held.
+func (b *balancer) stuck(cs []*tunnel.Pool, key string, now time.Time) int {
+	st, ok := b.sticky[key]
+	if !ok || !now.Before(st.exp) {
+		return -1
+	}
+	for i, p := range cs {
+		if ProfileKey(p.P) == st.key {
+			return i
+		}
+	}
+	return -1
 }
 
 // balConn gives a connection back to the balancer when it closes. It keeps
@@ -513,13 +560,26 @@ func (d *Daemon) balanceMain() {
 	case bad:
 		why = fmt.Sprintf("Balance: %s fails its checks, %s takes over as main. ", main.P.Name, name(best))
 	case bestPing > 0 && (mainPing <= 0 || bestPing+150 < mainPing):
-		why = fmt.Sprintf("Balance: %s answers faster (%d vs %d ms), making it the main account. ", name(best), bestPing, mainPing)
+		// one fast ping against one slow one is often a spike: the other account
+		// must win mainWins looks in a row (about 90 s) before the main changes,
+		// else Balance flips back and forth and every flip moves connections
+		if b.winKey == best {
+			b.winRuns++
+		} else {
+			b.winKey, b.winRuns = best, 1
+		}
+		if b.winRuns >= mainWins {
+			why = fmt.Sprintf("Balance: %s answers faster (%d vs %d ms), making it the main account. ", name(best), bestPing, mainPing)
+		}
+	default:
+		b.winKey, b.winRuns = "", 0
 	}
 	if why == "" {
 		b.mu.Unlock()
 		return
 	}
 	b.lastMain = time.Now()
+	b.winKey, b.winRuns = "", 0
 	b.mu.Unlock()
 	d.log.Infof("balance", "%s", strings.TrimSpace(why))
 	select {
@@ -545,14 +605,14 @@ func (d *Daemon) balanceCheck() {
 			b.mu.Lock()
 			defer b.mu.Unlock()
 			if err == nil {
-				if b.bad[k] > 0 {
+				if b.bad[k] >= pauseAfter {
 					d.log.Okf("balance", "%s answers again, back in Balance", p.P.Name)
 				}
 				b.bad[k], b.ping[k] = 0, ms
 				return
 			}
 			b.bad[k]++
-			if b.bad[k] == 1 {
+			if b.bad[k] == pauseAfter {
 				d.log.Warnf("balance", "%s: no new connections until it answers again", p.P.Name)
 			}
 			b.ping[k] = -1
@@ -584,7 +644,7 @@ func (d *Daemon) candidates(main *tunnel.Pool) []*tunnel.Pool {
 	sort.Strings(keys)
 	for _, k := range keys {
 		if p := b.pools[k]; p.Alive() {
-			if b.bad[k] > 0 {
+			if b.bad[k] >= pauseAfter {
 				paused = append(paused, p)
 			} else {
 				cs = append(cs, p)
@@ -619,14 +679,14 @@ func (d *Daemon) balanceDial(main *tunnel.Pool, addr string) (net.Conn, bool, er
 		return nil, true, tunnel.ErrNoSession
 	}
 	sticky := d.cfg.Main.BalanceSticky
+	skey := host
+	if g := d.siteGroup(host); g != "" {
+		sticky, skey = true, "@"+g
+	}
 	now := time.Now()
 	first := -1
-	if st, ok := b.sticky[host]; sticky && ok && now.Before(st.exp) {
-		for i, p := range cs {
-			if ProfileKey(p.P) == st.key {
-				first = i
-			}
-		}
+	if sticky {
+		first = b.stuck(cs, skey, now)
 	}
 	if first < 0 {
 		first = b.pick(cs, b.rrT)
@@ -653,7 +713,7 @@ func (d *Daemon) balanceDial(main *tunnel.Pool, addr string) (net.Conn, bool, er
 		if err == nil {
 			if sticky {
 				b.mu.Lock()
-				b.sticky[host] = stick{key: ProfileKey(p.P), exp: now.Add(stickyFor)}
+				b.sticky[skey] = stick{key: ProfileKey(p.P), exp: now.Add(stickyFor)}
 				b.mu.Unlock()
 			}
 			pp := p
@@ -673,7 +733,7 @@ func udpCapable(p *tunnel.Pool) bool {
 
 // balanceUDP opens a UDP flow on the pool with the fewest flows per share.
 // ok is false when Balance has nothing to offer.
-func (d *Daemon) balanceUDP(main *tunnel.Pool, onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool) {
+func (d *Daemon) balanceUDP(main *tunnel.Pool, dst *net.UDPAddr, onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool) {
 	b := d.bal
 	b.mu.Lock()
 	if len(b.pools) == 0 {
@@ -690,7 +750,19 @@ func (d *Daemon) balanceUDP(main *tunnel.Pool, onPacket func(src *net.UDPAddr, d
 		b.mu.Unlock()
 		return nil, false
 	}
-	first := b.pick(cs, b.rrU)
+	skey, now := "", time.Now()
+	if dst != nil {
+		if g := d.siteGroup(dst.IP.String()); g != "" {
+			skey = "@" + g // QUIC to YouTube: same account as its TCP connections
+		}
+	}
+	first := -1
+	if skey != "" {
+		first = b.stuck(cs, skey, now)
+	}
+	if first < 0 {
+		first = b.pick(cs, b.rrU)
+	}
 	order := append([]*tunnel.Pool{cs[first]}, append(append([]*tunnel.Pool{}, cs[:first]...), cs[first+1:]...)...)
 	b.mu.Unlock()
 	for _, p := range order {
@@ -713,6 +785,9 @@ func (d *Daemon) balanceUDP(main *tunnel.Pool, onPacket func(src *net.UDPAddr, d
 		pp := p
 		b.mu.Lock()
 		b.udp[pp]++
+		if skey != "" {
+			b.sticky[skey] = stick{key: ProfileKey(pp.P), exp: now.Add(stickyFor)}
+		}
 		b.mu.Unlock()
 		return &balRelay{UDPRelay: r, pool: pp, done: func() { b.mu.Lock(); b.udp[pp]--; b.mu.Unlock() }}, true
 	}
@@ -771,7 +846,7 @@ func (d *Daemon) balanceRates(main *tunnel.Pool, mainRX, mainTX int64) (rx, tx i
 			d.use.AddProfile(time.Now(), k, p.P.Name, r, t)
 		}
 		list = append(list, BalanceStatus{Key: k, Name: p.P.Name, Wan: p.P.Wan, State: "connected", RateRX: r, RateTX: t, Streams: b.tcp[p], UDP: b.udp[p], PingMS: b.ping[k],
-			Weight: int(b.weight(p)), Paused: b.bad[k] > 0})
+			Weight: int(b.weight(p)), Paused: b.bad[k] >= pauseAfter})
 	}
 	for _, x := range d.st.Balance {
 		if !x.Main && !seen[x.Key] && x.State == "connecting" {
