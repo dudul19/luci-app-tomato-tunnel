@@ -26,7 +26,7 @@ feature, setting and payload tag is explained there.
 
 ![Dashboard](docs/screenshots/dashboard-v1.7.0.png)
 
-Dashboard (v1.7.0 shown, same look in v1.7.3) on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
+Dashboard (v1.7.0 shown, same look in v1.7.4) on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
 
 ## Features
 
@@ -76,8 +76,8 @@ the [Releases](https://github.com/dudul19/luci-app-tomato-tunnel/releases/latest
 copy it to `/tmp` and install it:
 
 ```sh
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.3_aarch64_generic.apk   # OpenWrt 25.x and newer
-opkg install /tmp/luci-app-tomato-tunnel_1.7.3_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.apk   # OpenWrt 25.x and newer
+opkg install /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
 ```
 
 Then open LuCI › Services › Tomato Tunnel. Xray accounts need the Xray add-on:

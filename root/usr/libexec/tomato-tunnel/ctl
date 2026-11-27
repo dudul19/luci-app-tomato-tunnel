@@ -129,6 +129,38 @@ case "$1" in
 	changeip-detect)
 		"$BIN" changeip-detect
 		;;
+	uci-ops)
+		shift
+		C=tomato-tunnel
+		okname() { case "$1" in ''|*[!A-Za-z0-9_]*) return 1 ;; esac; return 0; }
+		ok=1
+		while [ $# -ge 4 ]; do
+			op=$1 s=$2 o=$3 v=$4
+			shift 4
+			okname "$s" || { ok=0; break; }
+			[ -z "$o" ] || okname "$o" || { ok=0; break; }
+			eval "r=\${m_$s:-$s}"
+			case "$op" in
+				add) n=$(uci add "$C" "$o") && okname "$n" && eval "m_$s=\$n" || ok=0 ;;
+				sec) uci set "$C.$s=$o" || ok=0 ;;
+				set) uci set "$C.$r.$o=$v" || ok=0 ;;
+				del) if [ -n "$o" ]; then uci -q delete "$C.$r.$o"; else uci -q delete "$C.$r"; fi ;;
+				list) uci -q delete "$C.$r.$o" ;;
+				addlist) uci add_list "$C.$r.$o=$v" || ok=0 ;;
+				order) uci reorder "$C.$r=$v" || ok=0 ;;
+				*) ok=0 ;;
+			esac
+			[ "$ok" = 1 ] || break
+		done
+		[ $# -eq 0 ] || ok=0
+		if [ "$ok" = 1 ] && uci commit "$C"; then
+			echo ok
+		else
+			uci revert "$C"
+			echo "could not write the settings"
+			exit 1
+		fi
+		;;
 	start|stop|restart)
 		"$INIT" "$1" >/dev/null 2>&1
 		echo ok

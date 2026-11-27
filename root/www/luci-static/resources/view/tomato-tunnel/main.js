@@ -67,6 +67,47 @@ function commitWait(conf) {
 	}
 	return attempt();
 }
+function applyLocked() {
+	return callCommit(CONF).then(function() { return false; }, function(e) {
+		if (!isDenied(e)) return false;
+		return sessionAlive();
+	});
+}
+function pendingOps(conf) {
+	var s = uci.state;
+	if (!s || !s.creates || !s.changes || !s.deletes) return null;
+	var out = [], n = s.creates[conf] || {}, c = s.changes[conf] || {}, d = s.deletes[conf] || {};
+	function val(sid, o, v) {
+		if (v == null) out.push('del', sid, o, '');
+		else if (Array.isArray(v)) { out.push('list', sid, o, ''); v.forEach(function(x) { out.push('addlist', sid, o, String(x)); }); }
+		else out.push('set', sid, o, String(v));
+	}
+	Object.keys(d).forEach(function(sid) {
+		if (d[sid] === true) out.push('del', sid, '', '');
+		else Object.keys(d[sid]).forEach(function(o) { out.push('del', sid, o, ''); });
+	});
+	Object.keys(n).sort(function(a, b) { return (n[a]['.index'] || 0) - (n[b]['.index'] || 0); }).forEach(function(sid) {
+		var x = n[sid];
+		out.push(x['.anonymous'] || !x['.create'] ? 'add' : 'sec', sid, x['.type'], '');
+		Object.keys(x).forEach(function(k) { if (k.charAt(0) !== '.') val(sid, k, x[k]); });
+	});
+	Object.keys(c).forEach(function(sid) {
+		if (d[sid] === true || n[sid]) return;
+		Object.keys(c[sid]).forEach(function(o) { val(sid, o, c[sid][o]); });
+	});
+	if (s.reorder && s.reorder[conf]) uci.sections(conf).forEach(function(x, i) { out.push('order', x['.name'], '', String(i)); });
+	return out;
+}
+function saveDirect() {
+	var ops = pendingOps(CONF);
+	if (!ops) return uci.save().then(function() { return commitWait(CONF); });
+	var run = ops.length ? fs.exec(CTL, [ 'uci-ops' ].concat(ops)) : Promise.resolve({ code: 0 });
+	return run.then(function(r) {
+		if (r.code !== 0) throw new Error(((r.stdout || '') + (r.stderr || '')).trim() || 'could not write the settings');
+		uci.unload(CONF);
+		ui.addNotification(null, E('p', 'Saved. Another LuCI change is still waiting for "Apply" confirmation (top right of LuCI); Tomato Tunnel saved without it.'), 'info');
+	});
+}
 
 var PRESETS = [
 	[ '', 'SSH Direct', 0, 0, 0, 0 ],
@@ -488,7 +529,10 @@ return view.extend({
 		return ps.length ? ps[0]['.name'] : '';
 	},
 	commit: function(msg) {
-		return uci.save().then(function() { return commitWait(CONF); }).then(function() {
+		return applyLocked().then(function(locked) {
+			if (locked) return saveDirect();
+			return uci.save().then(function() { return commitWait(CONF); });
+		}).then(function() {
 			return uci.load(CONF);
 		}).then(function() {
 			if (ui.changes && ui.changes.init) ui.changes.init();

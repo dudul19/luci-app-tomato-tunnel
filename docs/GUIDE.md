@@ -2,7 +2,7 @@
 
 **English** · [Bahasa Indonesia](GUIDE.id.md)
 
-Every feature up to **version 1.7.3**, in short.
+Every feature up to **version 1.7.4**, in short.
 
 ## Contents
 
@@ -55,8 +55,8 @@ opkg print-architecture  # OpenWrt 23.05 and 24.10
 2. Install:
 
    ```sh
-   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.3_aarch64_generic.apk   # OpenWrt 25.x
-   opkg install /tmp/luci-app-tomato-tunnel_1.7.3_aarch64_generic.ipk                # OpenWrt 23.05 / 24.10
+   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.apk   # OpenWrt 25.x
+   opkg install /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.ipk                # OpenWrt 23.05 / 24.10
    ```
 
 3. Open **Services › Tomato Tunnel**.
@@ -348,7 +348,7 @@ King3399 (RK3399, 2 GB), ImmortalWrt, TUN mode. 100 % = one core.
 
 **Old Dropbear keeps dropping**: SSH compatibility on Auto or Legacy.
 
-**"Another LuCI change is still being applied"**: another LuCI page is waiting for its Apply confirmation. Wait about 90 s, or confirm / revert it (top right of LuCI). If the login expired, log in again.
+**"Another LuCI change is still waiting for Apply confirmation"**: another LuCI page has an Apply that was never confirmed. Since 1.7.4 Tomato Tunnel saves and starts anyway; confirm or revert that change (top right of LuCI) to make the note go away. If the login expired, log in again.
 
 **YouTube "Something went wrong"**: keep Block QUIC on Auto.
 
@@ -377,6 +377,7 @@ King3399 (RK3399, 2 GB), ImmortalWrt, TUN mode. 100 % = one core.
 | 1.7.1 | Tunnel on/off schedule, faster DNS, no more late notifications, Balance by weight, save fix on OpenWrt 24.10 |
 | 1.7.2 | One Xray process for Balance (about half the RAM), YouTube fix (Block QUIC Auto, YouTube on one account), steadier Balance main account, Schedule "until", Tailscale through the tunnel + LuCI over Tailscale, Usage "Show all", phone layout fixes, shorter texts, faster page load |
 | 1.7.3 | Xray over SlowDNS, payload for Xray (Enhanced, inside / before TLS), new SlowDNS record types HTTPS, SVCB, DNSKEY, A and AAAA (DNS64 networks too), resolver Auto (operator DNS), EDNS0 and KCP window settings, steadier A/AAAA, Stop no longer hangs on a stuck SlowDNS, phone button layout fix |
+| 1.7.4 | Start and Save work while another LuCI change waits for Apply confirmation (OpenWrt 24.10) |
 
 ---
 
