@@ -59,16 +59,6 @@ tun_up() {
 	log "LAN ($LAN) routed through $TUN, table $TABLE"
 }
 
-# Tailscale on the router (Settings › Network › Tailscale, auto = when it is
-# installed). All rules sit before Tailscale's own (5210-5270):
-# - its own traffic (login, DERP relays, WireGuard), marked 0x80000 by
-#   tailscaled, goes through the tunnel: most packages have no regular quota;
-# - LAN to 100.x and Tailscale subnets uses Tailscale's table 52, without its
-#   default route, so an exit node or odd route can never take the tunnel's place;
-# - traffic from tailscale0 (the router used as exit node) goes through the tunnel.
-# Tomato Tunnel's own server connection is bound to the modem, so none of this
-# can loop it back into the tunnel. The firewall part (Tailscale devices may
-# open the router, LAN to 100.x) is in /usr/share/nftables.d and always on.
 ts_up() {
 	case "$(uci -q get tomato-tunnel.main.tailscale)" in 0|off) return 0 ;; esac
 	[ -x /usr/sbin/tailscaled ] || return 0

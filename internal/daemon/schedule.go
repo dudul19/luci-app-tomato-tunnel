@@ -11,13 +11,8 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/config"
 )
 
-// CtlPath is the control script; the schedule uses it so a scheduled change
-// is the same as a click on the page (written to the config, logged, applied).
 var CtlPath = "/usr/libexec/tomato-tunnel/ctl"
 
-// schedRun is an account or mode schedule with an end time that has switched:
-// Prev is what to go back to at the end, Value what it switched to. They are
-// kept in RunDir, so a tunnel restart inside the window still switches back.
 type schedRun struct {
 	Action string `json:"action"`
 	Value  string `json:"value"`
@@ -44,8 +39,6 @@ func saveSchedRuns(m map[string]schedRun) {
 	}
 }
 
-// scheduleLoop runs the schedules from Settings › Schedule while the tunnel runs.
-// The config is read fresh every time, so edits count without a restart.
 func (d *Daemon) scheduleLoop(ctx context.Context) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
@@ -79,10 +72,6 @@ func (d *Daemon) scheduleLoop(ctx context.Context) {
 	}
 }
 
-// scheduleBack switches back every window that has ended. A window whose
-// schedule was removed, turned off or lost its end time is forgotten, and so
-// is one where the account or mode was changed by hand meanwhile: that choice
-// stays. It reports whether runs changed.
 func (d *Daemon) scheduleBack(ctx context.Context, c *config.Config, runs map[string]schedRun, now time.Time) bool {
 	changed := false
 	for id, r := range runs {
@@ -93,7 +82,7 @@ func (d *Daemon) scheduleBack(ctx context.Context, c *config.Config, runs map[st
 			}
 		}
 		if s != nil && s.Enabled && s.HasEnd() && s.Action == r.Action && s.Value == r.Value && s.InWindow(now) {
-			continue // still inside the window
+			continue
 		}
 		delete(runs, id)
 		changed = true
@@ -123,8 +112,6 @@ func (d *Daemon) scheduleBack(ctx context.Context, c *config.Config, runs map[st
 	return changed
 }
 
-// runSchedule carries out s. ok is true when it switched, with what to go
-// back to at the end.
 func (d *Daemon) runSchedule(ctx context.Context, c *config.Config, s config.Schedule) (r schedRun, ok bool) {
 	switch s.Action {
 	case "account":
@@ -144,7 +131,7 @@ func (d *Daemon) runSchedule(ctx context.Context, c *config.Config, s config.Sch
 		}
 		r = schedRun{Action: "account", Value: p.ID, Prev: c.Main.Profile}
 		if cur := d.pool.Load(); r.Prev == "" && cur != nil {
-			r.Prev = cur.P.ID // none picked by hand yet: the one running
+			r.Prev = cur.P.ID
 		}
 		exec.CommandContext(ctx, CtlPath, "switch", p.ID).Run()
 		return r, r.Prev != ""

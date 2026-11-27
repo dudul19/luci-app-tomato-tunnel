@@ -9,12 +9,25 @@
 var CTL = '/usr/libexec/tomato-tunnel/ctl';
 var CONF = 'tomato-tunnel';
 var TG = 'https://t.me/dudulrealnofek';
-var REPO = 'dudul19/luci-app-tomato-tunnel'; // fixed, like the daemon (config.Repo)
+var REPO = 'dudul19/luci-app-tomato-tunnel';
 
-// LuCI's ui.addNotification() stays on screen until the user clicks Dismiss.
-// For transient "Saved… / Applied…" toasts that is just noise, so informational
-// notifications fade out on their own after a few seconds; warnings and errors
-// still stick so the user can read them.
+(function() {
+	if (!ui || !ui.addNotification || ui.addNotification.__tomatoAuto) return;
+	var orig = ui.addNotification.bind(ui);
+	function wrapped() {
+		var node = orig.apply(null, arguments);
+		var cls = Array.prototype.slice.call(arguments, 2).join(' ');
+		if (node && !/\b(warning|error|danger)\b/.test(cls)) {
+			setTimeout(function() {
+				try { if (node && node.parentNode) node.parentNode.removeChild(node); } catch (e) {}
+			}, 5000);
+		}
+		return node;
+	}
+	wrapped.__tomatoAuto = true;
+	ui.addNotification = wrapped;
+})();
+
 (function() {
 	if (!ui || !ui.addNotification || ui.addNotification.__tomatoAuto) return;
 	var orig = ui.addNotification.bind(ui);
@@ -35,9 +48,6 @@ var REPO = 'dudul19/luci-app-tomato-tunnel'; // fixed, like the daemon (config.R
 var callCommit = rpc.declare({ object: 'uci', method: 'commit', params: [ 'config' ] });
 var callGetOpt = rpc.declare({ object: 'uci', method: 'get', params: [ 'config', 'section', 'option' ], expect: { value: null } });
 
-// rpcd answers uci/commit with "Access denied" (-32002) in two cases: the LuCI login
-// expired, or another LuCI "Save & Apply" is still waiting for its rollback confirmation
-// (rpcd locks every commit until that apply is confirmed or rolled back, up to ~90 s).
 function isDenied(e) { return !!e && (e.code === -32002 || e.name === 'PermissionError' || /access denied|permission denied/i.test(String(e.message || e))); }
 function sessionAlive() {
 	return fs.exec(CTL, [ 'version' ]).then(function() { return true; }, function(e) { return !isDenied(e); });
@@ -78,7 +88,7 @@ function layers(p) {
 	L.enh = L.payload && p.enhanced === '1';
 	L.zivpn = p.type === 'zivpn';
 	L.xray = p.type === 'xray';
-	if (L.zivpn || L.xray) { L.payload = L.tls = L.dns = L.enh = false; }
+	if (L.zivpn || L.xray) { L.payload = L.tls = L.enh = false; L.dns = L.xray && p.use_slowdns === '1'; }
 	L.insecure = p.insecure !== '0';
 	return L;
 }
@@ -90,11 +100,16 @@ var XFP = [ [ 'chrome', 'Chrome' ], [ 'firefox', 'Firefox' ], [ 'safari', 'Safar
 function xd(p) {
 	var x = { proto: p.x_proto || 'vless', net: p.x_net || 'tcp', sec: p.x_sec || 'none' };
 	if (x.sec === 'reality') { x.proto = 'vless'; if (x.net === 'ws' || x.net === 'httpupgrade') x.net = 'tcp'; }
+	x.dns = p.use_slowdns === '1';
+	if (x.dns) { x.sec = 'none'; if (x.net === 'tcp' || x.net === 'grpc') x.net = 'ws'; }
+	x.payOK = !x.dns && x.sec !== 'reality' && (x.net === 'tcp' || x.net === 'ws' || x.net === 'httpupgrade');
+	x.pay = x.payOK && p.use_payload === '1';
+	x.enh = x.pay && p.enhanced === '1';
 	return x;
 }
 function xrayLabel(p) {
 	var x = xd(p), n = { vless: 'VLESS', vmess: 'VMess', trojan: 'Trojan' }[x.proto];
-	return n + ' ' + XNETS[x.net] + (x.sec === 'tls' ? ' TLS' : (x.sec === 'reality' ? ' REALITY' : ''));
+	return n + ' ' + XNETS[x.net] + (x.sec === 'tls' ? ' TLS' : (x.sec === 'reality' ? ' REALITY' : '')) + (x.dns ? ' + SlowDNS' : '') + (x.pay ? ' + Payload' + (x.enh ? ' + Enhanced' : '') : '');
 }
 function qs(q) {
 	var o = {};
@@ -177,6 +192,11 @@ var TEMPLATES = {
 	connect: 'CONNECT [host_port] HTTP/1.1[crlf]Host: [bug][crlf][crlf]',
 	enhanced: 'HEAD / HTTP/1.1[crlf]Host: [bug][crlf][crlf]PATCH / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf][crlf][split]HTTP/1.1[crlf][crlf]'
 };
+var XTEMPLATES = {
+	plain: 'GET / HTTP/1.1[crlf]Host: [bug][crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf][crlf]',
+	connect: 'CONNECT [host_port] HTTP/1.1[crlf]Host: [bug][crlf][crlf]',
+	enhanced: 'HEAD / HTTP/1.1[crlf]Host: [bug][crlf][crlf][split]PATCH / HTTP/1.1[crlf]Host: [bug][crlf]Upgrade: websocket[crlf][crlf]'
+};
 var UAS = [
 	[ 'Dalvik/2.1.0 (Linux; U; Android 13)', 'Android (Dalvik)' ],
 	[ 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36', 'Chrome mobile' ]
@@ -192,7 +212,6 @@ function kindOf(d) {
 	if (L.payload && !L.dns && !L.enh && !d.proxy && (!d.payload || d.payload === TEMPLATES.ws || d.payload === TEMPLATES.wss)) return 'ws';
 	return 'custom';
 }
-// a small coloured tag per account type (Dashboard cards and the account list)
 function kindKey(d) {
 	var k = kindOf(d);
 	if (k === 'xray') { var x = (d.x_proto || 'vless').toLowerCase(); return [ 'vless', 'vmess', 'trojan' ].indexOf(x) >= 0 ? x : 'vless'; }
@@ -208,13 +227,11 @@ function niceLabel(d) {
 	return layerLabel(L);
 }
 var RESTART_KEYS = [ 'net_mode', 'socks_port', 'socks_listen', 'wan_iface', 'dns_mode', 'dns_server', 'manage_dnsmasq', 'bypass', 'bypass_id', 'block_ads', 'direct_domain', 'ssh_compat', 'check_url', 'unified_delay', 'block_quic', 'tailscale', 'check_interval', 'check_fail', 'sessions', 'log_level' ];
-var PROFILE_KEYS = [ 'name', 'type', 'use_payload', 'use_tls', 'use_slowdns', 'enhanced', 'insecure', 'host', 'port', 'user', 'pass', 'bug', 'ua', 'payload', 'proxy', 'udpgw', 'split_delay', 'dns_domain', 'dns_resolver', 'dns_pubkey', 'dns_type', 'expires', 'dashboard', 'wan', 'balance', 'balance_weight',
-	'x_proto', 'uuid', 'x_net', 'x_path', 'x_host', 'x_service', 'x_mode', 'x_flow', 'x_sec', 'sni', 'fp', 'pbk', 'sid', 'spx', 'vcn', 'pcs' ];
+var PROFILE_KEYS = [ 'name', 'type', 'use_payload', 'use_tls', 'use_slowdns', 'enhanced', 'insecure', 'host', 'port', 'user', 'pass', 'bug', 'ua', 'payload', 'proxy', 'udpgw', 'split_delay', 'dns_domain', 'dns_resolver', 'dns_pubkey', 'dns_type', 'dns_edns', 'dns_kcp_window', 'expires', 'dashboard', 'wan', 'balance', 'balance_weight',
+	'x_proto', 'uuid', 'x_net', 'x_path', 'x_host', 'x_service', 'x_mode', 'x_flow', 'x_sec', 'sni', 'fp', 'pbk', 'sid', 'spx', 'vcn', 'pcs', 'x_paypos' ];
 function onDash(p) { return p.dashboard !== '0'; }
 function inBal(p) { return p.balance !== '0'; }
 var L3 = {};
-// label of an OpenWrt interface: its live device, else the configured one
-// (ModemManager stores a long /sys path there, which says nothing).
 function ifLabel(i) {
 	var d = L3[i['.name']] || (i.device && i.device.charAt(0) !== '/' ? i.device : '') || i.proto || '';
 	return i['.name'] + (d ? ' (' + d + ')' : '');
@@ -250,8 +267,6 @@ function b64dec(s) { return decodeURIComponent(escape(atob(s.replace(/-/g, '+').
 function smooth(pts) {
 	if (pts.length < 2) return '';
 	var d = 'M' + pts[0][0].toFixed(1) + ',' + pts[0][1].toFixed(1);
-	// the curve may not bulge below the lowest point (the 0 line): a flat 0 right
-	// before a climb would otherwise dip under the bottom of the chart
 	var low = Math.max.apply(null, pts.map(function(q) { return q[1]; }));
 	for (var i = 0; i < pts.length - 1; i++) {
 		var p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
@@ -321,7 +336,6 @@ function fmtDur(sec) {
 function hhmm(ts) { var d = new Date(ts * 1000); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
 
 var METHOD_NAMES = { 'none': 'Off', 'iface': 'Restart interface', 'at': 'Airplane mode (AT)', 'mm': 'ModemManager', 'hilink': 'HiLink / Orbit', 'adb': 'Android phone (ADB)' };
-// ip4 parses a possibly short IPv4 address; missing parts get fill (0 or 255).
 function ip4(s, fill) {
 	var f = s.replace(/\.$/, '').split('.');
 	if (!s || f.length > 4) return null;
@@ -334,7 +348,6 @@ function ip4(s, fill) {
 	return out;
 }
 function ipNum(a) { return ((a[0] * 256 + a[1]) * 256 + a[2]) * 256 + a[3]; }
-// rangeMeans explains one range row: [ok, text].
 function rangeMeans(from, to) {
 	if (!from && !to) return [ true, '' ];
 	if (!from) return [ false, 'Fill in "From"' ];
@@ -429,9 +442,6 @@ function logText(text, max) {
 	return lines.length ? lines.map(function(l) { return l.replace(/ (ERR|DBG) /, function(m, x) { return x === 'ERR' ? ' ✗ ' : ' · '; }); }).join('\n') : 'No log yet.';
 }
 
-// Adds the stylesheet to <head> once and resolves when it has loaded (or failed, or
-// after 1.5 s: tt.css is ~50 KB from the router, and some phone browsers never
-// report the load, which held the first view for the whole wait).
 function loadCss(href) {
 	var el = document.getElementById('tt-css');
 	if (el && el.getAttribute('href') === href) return el._ready || Promise.resolve();
@@ -447,7 +457,6 @@ function loadCss(href) {
 
 return view.extend({
 	load: function() {
-		// normalize must finish before the config is read; the rest starts at once
 		return Promise.all([
 			ctl([ 'normalize' ]).then(function() { return uci.load(CONF); }),
 			ctlJSON([ 'status' ]),
@@ -462,10 +471,7 @@ return view.extend({
 				(t || '').split('\n').forEach(function(l) { var f = l.trim().split(/\s+/); if (f[0] && f[1]) L3[f[0]] = f[1]; });
 			}).catch(function() {})
 		]).then(function(data) {
-			// Load tt.css before the first render. A <link> inside the view only starts
-			// loading once the page is drawn, and until then the banner art and wordmark
-			// (SVGs without a size) stretch over the whole screen.
-			return loadCss(L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent((data[3] || '').trim()) + '-61').then(function() { return data; });
+			return loadCss(L.resource('tomato-tunnel/tt.css') + '?v=' + encodeURIComponent((data[3] || '').trim()) + '-62').then(function() { return data; });
 		});
 	},
 
@@ -481,8 +487,6 @@ return view.extend({
 		if (id && ps.some(function(p) { return p['.name'] === id; })) return id;
 		return ps.length ? ps[0]['.name'] : '';
 	},
-	// Resolves true once the change is in /etc/config, false (after telling the user) when
-	// it is not, so callers never restart or switch the tunnel on a config that was not saved.
 	commit: function(msg) {
 		return uci.save().then(function() { return commitWait(CONF); }).then(function() {
 			return uci.load(CONF);
@@ -581,7 +585,6 @@ return view.extend({
 		});
 	},
 
-	// The page header: the chosen banner, or a plain card with No banner.
 	renderBanner: function() {
 		var mode = this.get('banner', 'tomato');
 		if (mode === 'default') mode = 'tomato';
@@ -682,22 +685,16 @@ return view.extend({
 		var r = this.refs, h = this.hist || [];
 		if (!r.chart) return;
 		var W = 600, H = 120, n = 30, max = 1, off = n - h.length;
-		// A second without a connection is drawn as 0, not as a hole: the line stays
-		// flat on the bottom while the account is down and climbs from 0 once it is
-		// back. Only the samples before the first connection are left out.
 		var first = -1;
 		h.forEach(function(s, i) { if (first < 0 && s && s.length >= 2) first = i; });
 		var segs = first < 0 ? [] : [ h.slice(first).map(function(s, i) {
 			var ok = s && s.length >= 2;
 			return [ first + i, ok ? +s[0] || 0 : 0, ok ? +s[1] || 0 : 0 ];
 		}) ];
-		// A fresh connection starts from 0 too: one point at 0 just before the first
-		// sample, so the line climbs instead of starting in mid-air. Not when the
-		// history is full and the start has already scrolled out on the left.
 		if (segs.length && (first > 0 || h.length < n)) segs[0].unshift([ first - 1, 0, 0 ]);
 		segs = segs.map(function(sg) {
 			return sg.map(function(s, i) {
-				if (!s[1] && !s[2]) return s; // 0 stays on the bottom line
+				if (!s[1] && !s[2]) return s;
 				var a = sg[i - 1] || s, b = sg[i + 1] || s;
 				return [ s[0], (a[1] + 2 * s[1] + b[1]) / 4, (a[2] + 2 * s[2] + b[2]) / 4 ];
 			});
@@ -817,7 +814,6 @@ return view.extend({
 		if (r.balRow) r.balRow.style.display = list.length ? '' : 'none';
 		if (!list.length) return;
 		var tot = list.reduce(function(a, b) { return a + (b.rate_rx || 0); }, 0) || 1;
-		// accounts with "Show on Dashboard" off get no row; shares stay out of the full total
 		var isHidden = function(b) { return uci.get(CONF, b.key, 'dashboard') === '0'; };
 		var hid = list.filter(isHidden);
 		list = list.filter(function(b) { return !isHidden(b); });
@@ -938,7 +934,6 @@ return view.extend({
 		r.grid.innerHTML = '';
 		if (!ps.length) { r.grid.appendChild(E('em', {}, 'No accounts yet. Add one in Accounts.')); return; }
 		if (!ps.some(onDash)) { r.grid.appendChild(E('em', { 'class': 'tt-muted' }, 'All hidden. Turn on "Show on Dashboard" in Accounts.')); }
-		// "Show on Dashboard" off always hides the card, also for the account that is running now.
 		var curP = ps.filter(function(p) { return p['.name'] === cur; })[0];
 		var hidden = ps.filter(function(p) { return !onDash(p) && p['.name'] !== cur; }).length;
 		ps = ps.filter(onDash);
@@ -1040,9 +1035,6 @@ return view.extend({
 			return this.show('accounts');
 		}
 		btn.disabled = true;
-		// The tunnel reads /etc/config, so whatever this page still holds (imported accounts,
-		// the selected account) is written first. An empty "new account" placeholder whose form
-		// was never saved is dropped so it does not end up in the config.
 		if (what !== 'stop') this.cancelNew(true);
 		var first = what === 'stop' ? Promise.resolve(true) : this.commit(false);
 		return first.then(function(ok) {
@@ -1434,23 +1426,7 @@ return view.extend({
 			rows.push(row('Server host', bind('host', { 'placeholder': 'sg1.example.com', 'autocapitalize': 'off' }), 'Used for [host] in the payload.'));
 		}
 
-		if (isDns) {
-			rows.push(row('Nameserver (NS)', bind('dns_domain', { 'placeholder': 'ns.example.com', 'autocapitalize': 'off' })));
-			rows.push(row('Public key', bind('dns_pubkey', { 'class': 'cbi-input-text tt-mono', 'placeholder': '64 hex characters', 'spellcheck': 'false' })));
-			rows.push(row('Record type', select(d.dns_type || 'auto', [ [ 'auto', 'Automatic' ], [ 'txt', 'TXT' ], [ 'null', 'NULL' ], [ 'cname', 'CNAME' ], [ 'ns', 'NS' ], [ 'mx', 'MX' ], [ 'srv', 'SRV' ] ], function(v) { d.dns_type = v; }),
-				'Automatic tries several types. Some DNS only pass one.'));
-			var presets = [ [ '1.1.1.1', '1.1.1.1 (UDP)' ], [ '8.8.8.8', '8.8.8.8 (UDP)' ], [ 'https://cloudflare-dns.com/dns-query', 'DoH Cloudflare' ], [ 'dot:dns.google:853', 'DoT Google' ] ];
-			var isPresetVal = function(v) { return !v || presets.some(function(p) { return p[0] === v; }); };
-			// _resCustom (not saved, PROFILE_KEYS leaves it out) keeps "Custom…" chosen while the field
-			// is still empty; before 1.7.1 the empty value fell back to 1.1.1.1 and the field vanished
-			if (d._resCustom === undefined) d._resCustom = !isPresetVal(d.dns_resolver);
-			rows.push(row('DNS resolver', select(d._resCustom ? '*' : (d.dns_resolver || '1.1.1.1'), presets.concat([ [ '*', 'Custom…' ] ]), function(v) {
-				d._resCustom = v === '*';
-				d.dns_resolver = d._resCustom ? (isPresetVal(d.dns_resolver) ? '' : d.dns_resolver) : v;
-				self.paintEditor();
-			}), 'Custom: any DNS server you choose.'));
-			if (d._resCustom) rows.push(row('Custom resolver', bind('dns_resolver', { 'placeholder': '1.2.3.4 · 1.2.3.4:53 · https://… · dot:host:853', 'autocapitalize': 'off', 'spellcheck': 'false' })));
-		}
+		if (isDns) rows = rows.concat(this.dnsRows(d));
 
 		rows.push(row('Username', bind('user', { 'autocapitalize': 'off', 'spellcheck': 'false' })));
 		var pw = bind('pass', { 'type': 'password', 'autocomplete': 'new-password', 'style': 'flex:1 1 auto;min-width:0;width:auto' });
@@ -1511,6 +1487,29 @@ return view.extend({
 		this.editorSection(rows, d, id, 'custom');
 	},
 
+	dnsRows: function(d) {
+		var self = this, rows = [];
+		var bind = function(k, attrs) { return textInput(d[k], function(v) { d[k] = v; }, attrs); };
+		rows.push(row('Nameserver (NS)', bind('dns_domain', { 'placeholder': 'ns.example.com', 'autocapitalize': 'off' })));
+		rows.push(row('Public key', bind('dns_pubkey', { 'class': 'cbi-input-text tt-mono', 'placeholder': '64 hex characters', 'spellcheck': 'false' })));
+		rows.push(row('Record type', select(d.dns_type || 'auto', [ [ 'auto', 'Automatic' ], [ 'txt', 'TXT' ], [ 'null', 'NULL' ], [ 'cname', 'CNAME' ], [ 'https', 'HTTPS' ], [ 'svcb', 'SVCB' ], [ 'dnskey', 'DNSKEY' ], [ 'a', 'A (slow)' ], [ 'aaaa', 'AAAA (slow)' ], [ 'ns', 'NS' ], [ 'mx', 'MX' ], [ 'srv', 'SRV' ] ], function(v) { d.dns_type = v; }),
+			'Automatic tries each type. Some carrier DNS only passes HTTPS, SVCB or DNSKEY.'));
+		rows.push(row('EDNS0 size', bind('dns_edns', { 'inputmode': 'numeric', 'placeholder': '1400' }),
+			'512–4096. Default 1400.'));
+		rows.push(row('KCP window', bind('dns_kcp_window', { 'inputmode': 'numeric', 'placeholder': '512' }),
+			'32–4096. Default 512.'));
+		var presets = [ [ 'auto', 'Auto (operator / modem DNS)' ], [ '1.1.1.1', '1.1.1.1 (UDP)' ], [ '8.8.8.8', '8.8.8.8 (UDP)' ], [ 'https://cloudflare-dns.com/dns-query', 'DoH Cloudflare' ], [ 'dot:dns.google:853', 'DoT Google' ] ];
+		var isPresetVal = function(v) { return !v || presets.some(function(p) { return p[0] === v; }); };
+		if (d._resCustom === undefined) d._resCustom = !isPresetVal(d.dns_resolver);
+		rows.push(row('DNS resolver', select(d._resCustom ? '*' : (d.dns_resolver || '1.1.1.1'), presets.concat([ [ '*', 'Custom…' ] ]), function(v) {
+			d._resCustom = v === '*';
+			d.dns_resolver = d._resCustom ? (isPresetVal(d.dns_resolver) ? '' : d.dns_resolver) : v;
+			self.paintEditor();
+		}), 'Auto: operator DNS of the modem/phone (for XL OPOK). Custom: any DNS.'));
+		if (d._resCustom) rows.push(row('Custom resolver', bind('dns_resolver', { 'placeholder': '1.2.3.4 · 1.2.3.4:53 · https://… · dot:host:853', 'autocapitalize': 'off', 'spellcheck': 'false' })));
+		return rows;
+	},
+
 	xrayRows: function(d) {
 		var self = this, rows = [], x = xd(d);
 		d.x_proto = x.proto; d.x_net = x.net; d.x_sec = x.sec;
@@ -1542,11 +1541,11 @@ return view.extend({
 			ui.addNotification(null, E('p', 'Filled from the link: ' + xrayLabel(d) + '. Check it, then Save & connect.'), 'info');
 		} }, 'Fill');
 		rows.push(row('Import from link', E('div', { 'class': 'tt-inline' }, [ link, fill ]), 'Paste the link; fields fill in by themselves.'));
-		var reality = x.sec === 'reality';
+		var reality = x.sec === 'reality', xdns = x.dns;
 		rows.push(row('Protocol', seg('x_proto', XPROTO, function(v) { return reality && v !== 'vless'; }), reality ? 'REALITY works with VLESS only.' : null));
 		rows.push(row('Address', bind('host', { 'placeholder': 'sg1.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' }),
-			reality ? 'Your server domain or IP.' : 'Server domain, or bug host / IP (then server in Host/SNI).'));
-		rows.push(row('Port', bind('port', { 'inputmode': 'numeric', 'placeholder': '443' })));
+			xdns ? 'Server domain (sent as Host).' : reality ? 'Your server domain or IP.' : 'Server domain, or bug host / IP (then server in Host/SNI).'));
+		rows.push(row('Port', bind('port', { 'inputmode': 'numeric', 'placeholder': x.sec === 'none' ? '80' : '443' })));
 		if (x.proto === 'trojan') {
 			var pw = bind('pass', { 'type': 'password', 'autocomplete': 'new-password', 'style': 'flex:1 1 auto;min-width:0;width:auto' });
 			var eye = E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'type': 'button', 'style': 'flex:0 0 auto;margin:0', 'click': function() {
@@ -1556,17 +1555,30 @@ return view.extend({
 		} else {
 			rows.push(row('UUID', bind('uuid', Object.assign({ 'placeholder': 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' }, mono)), x.proto === 'vmess' ? 'VMess encryption is set to auto.' : null));
 		}
-		rows.push(row('Transport', seg('x_net', XNET, function(v) { return reality && (v === 'ws' || v === 'httpupgrade'); }), reality ? 'WebSocket and HTTPUpgrade do not work with REALITY.' : 'Must match the server.'));
+		rows.push(row('Transport', seg('x_net', XNET, function(v) { return xdns ? (v === 'tcp' || v === 'grpc') : x.pay ? (v === 'grpc' || v === 'xhttp') : reality && (v === 'ws' || v === 'httpupgrade'); }),
+			xdns ? 'Over SlowDNS: WebSocket, HTTPUpgrade or XHTTP.' : x.pay ? 'With payload: TCP, WebSocket or HTTPUpgrade.' : reality ? 'WebSocket and HTTPUpgrade do not work with REALITY.' : 'Must match the server.'));
 		if (x.net === 'ws' || x.net === 'httpupgrade' || x.net === 'xhttp') {
-			rows.push(row('Path', bind('x_path', Object.assign({ 'placeholder': '/' }, mono)), 'Must match the server.'));
+			rows.push(row('Path', bind('x_path', Object.assign({ 'placeholder': xdns ? (x.proto === 'trojan' ? '/trojan-ws' : '/' + x.proto) : '/' }, mono)), xdns ? 'Tomato: /vless, /vmess or /trojan-ws.' : 'Must match the server.'));
 			rows.push(row('Host header', bind('x_host', { 'placeholder': x.net === 'xhttp' ? 'optional' : 'server domain', 'autocapitalize': 'off', 'spellcheck': 'false' }),
-				x.net === 'xhttp' ? 'Leave empty to use SNI.' : 'Server domain if Address is a bug host.'));
+				x.net === 'xhttp' ? 'Leave empty to use SNI.' : x.pay ? 'Server domain. Goes in Xray\'s own request, after the payload.' : 'Server domain if Address is a bug host.'));
 		}
 		if (x.net === 'xhttp') rows.push(row('Mode', select(d.x_mode || 'auto', [ [ 'auto', 'Auto' ], [ 'packet-up', 'packet-up' ], [ 'stream-up', 'stream-up' ], [ 'stream-one', 'stream-one' ] ], function(v) { d.x_mode = v; }), 'Auto unless your seller says otherwise.'));
 		if (x.net === 'grpc') rows.push(row('Service name', bind('x_service', Object.assign({ 'placeholder': 'vless-grpc' }, mono)), 'gRPC service name from the server.'));
-		if (x.proto === 'vless' && x.net === 'tcp' && x.sec !== 'none')
+		if (!xdns && !x.pay && x.proto === 'vless' && x.net === 'tcp' && x.sec !== 'none')
 			rows.push(row('Flow', select(d.x_flow || '', [ [ '', 'None' ], [ 'xtls-rprx-vision', 'xtls-rprx-vision' ] ], function(v) { d.x_flow = v; }), 'Vision: VLESS + TCP + TLS/REALITY only.'));
-		rows.push(row('Security', seg('x_sec', XSEC, null, function(v) {
+		rows.push(row('Over SlowDNS', checkbox(xdns, function(v) {
+			d.use_slowdns = v ? '1' : '0';
+			if (v) { d.x_sec = 'none'; d.x_flow = ''; if (d.x_net === 'tcp' || d.x_net === 'grpc') d.x_net = 'ws'; }
+			self.paintEditor();
+		}), 'Xray through the DNS tunnel (Tomato 3.8+). Slow, like SSH SlowDNS.'));
+		if (xdns) return rows.concat(this.dnsRows(d));
+		if (x.payOK) rows.push(row('Payload', checkbox(x.pay, function(v) {
+			d.use_payload = v ? '1' : '0';
+			if (!v) d.enhanced = '0';
+			else { d.x_flow = ''; if (!d.ua) d.ua = UAS[0][0]; }
+			self.paintEditor();
+		}), 'Send your own HTTP request first, then Xray\'s request (TCP, WebSocket, HTTPUpgrade).'));
+		rows.push(row('Security', seg('x_sec', XSEC, function(v) { return x.pay && v === 'reality'; }, function(v) {
 			if (v === 'reality') { d.x_proto = 'vless'; if (d.x_net === 'ws' || d.x_net === 'httpupgrade') d.x_net = 'tcp'; }
 			if ((d.port === '80' && v !== 'none') ) d.port = '443';
 			if (d.port === '443' && v === 'none') d.port = '80';
@@ -1583,6 +1595,44 @@ return view.extend({
 			rows.push(row('Short ID', bind('sid', mono), 'Called sid in the link. Can be empty.'));
 			rows.push(row('Fingerprint', fp));
 		}
+		return rows.concat(this.xrayPayloadRows(d, x));
+	},
+
+	xrayPayloadRows: function(d, x) {
+		var self = this, rows = [];
+		var bind = function(k, attrs) { return textInput(d[k], function(v) { d[k] = v; }, attrs); };
+		if (!x.pay) return rows;
+		rows.push(row('Enhanced', checkbox(x.enh, function(v) { d.enhanced = v ? '1' : '0'; self.paintEditor(); }),
+			'Split at [split], skip every HTTP reply until Xray gets its answer (101).'));
+		if (x.sec === 'tls')
+			rows.push(row('Send payload', select(d.x_paypos || 'inside', [ [ 'inside', 'Inside TLS' ], [ 'before', 'Before TLS' ] ], function(v) { d.x_paypos = v === 'inside' ? '' : v; }),
+				'Inside TLS = after the handshake (usual). Before TLS = plain text, then Xray\'s TLS.'));
+		rows.push(row('Bug host', bind('bug', { 'placeholder': 'bug.example.com', 'autocapitalize': 'off', 'spellcheck': 'false' }), 'Fills [bug]. [rotate=a;b] / [random=a;b] work.'));
+		var payloadText = d.payload || '';
+		var ta = E('textarea', { 'class': 'cbi-input-textarea tt-log', 'rows': '5', 'wrap': 'soft', 'style': 'white-space:pre-wrap;word-break:break-all', 'spellcheck': 'false',
+			'placeholder': XTEMPLATES.plain,
+			'input': function(ev) {
+				var had = /\[split\]/.test(d.payload || ''), hasNow = /\[split\]/.test(ev.target.value);
+				d.payload = ev.target.value;
+				if (had !== hasNow) { self.paintEditor(); var t2 = document.getElementById('tt-payload'); if (t2) { t2.focus(); t2.selectionStart = t2.selectionEnd = t2.value.length; } }
+			} }, payloadText);
+		ta.id = 'tt-payload';
+		rows.push(row('Payload text', E('div', {}, [ ta,
+			select('', [ [ '', 'Insert template…' ], [ 'plain', 'Simple GET' ], [ 'connect', 'CONNECT' ], [ 'enhanced', 'Enhanced example' ] ], function(v) {
+				if (XTEMPLATES[v]) { d.payload = XTEMPLATES[v]; if (v === 'enhanced') d.enhanced = '1'; }
+				self.paintEditor();
+			}) ]),
+			'Empty = Simple GET. Same tags as SSH: [bug] [host] [port] [crlf] [split] [delay] [ua]… Xray\'s own request is added after it by itself.'));
+		if (/\[split\]/.test(payloadText))
+			rows.push(row('[split] delay (ms)', bind('split_delay', { 'inputmode': 'numeric', 'placeholder': '1000' })));
+		rows.push(row('Remote proxy', bind('proxy', { 'placeholder': 'ip:port (optional)' }), 'Connect through this proxy. Empty = straight to Address.'));
+		var knownUA = UAS.some(function(u) { return u[0] === d.ua; });
+		var cur = !d.ua ? UAS[0][0] : (knownUA ? d.ua : '*');
+		rows.push(row('User-Agent [ua]', select(cur, UAS.concat([ [ '*', 'Custom…' ] ]), function(v) {
+			d.ua = v === '*' ? (knownUA || !d.ua ? 'Custom' : d.ua) : v;
+			self.paintEditor();
+		})));
+		if (d.ua && !knownUA) rows.push(row('Custom User-Agent', bind('ua')));
 		return rows;
 	},
 
@@ -1626,7 +1676,7 @@ return view.extend({
 			p = this.commit(false).then(function(ok) {
 				if (!ok) return;
 				return ctlJSON([ 'status' ]).then(function(st) {
-					if (st && st.state && st.state !== 'stopped') return ctl([ 'reload' ]); // the running tunnel picks up the change
+					if (st && st.state && st.state !== 'stopped') return ctl([ 'reload' ]);
 				});
 			});
 		} else {
@@ -1815,8 +1865,6 @@ return view.extend({
 			if (!ids.length) { box.appendChild(E('em', { 'class': 'tt-muted' }, isDev ? (self.get('net_mode', 'tun') === 'tun' ? 'No device traffic recorded.' : 'Needs TUN mode.') : 'No traffic.')); return; }
 			var tot = 0;
 			ids.forEach(function(id) { tot += obj[id].rx + obj[id].tx; });
-			// many devices (random MACs): the top few, the rest summed up, and
-			// "Show all" opens the full list in its own scroll box
 			var TOP = 8, all = !!(self.uAll && self.uAll[head]);
 			var rows = all ? E('div', { 'class': 'tt-uscroll' }) : box;
 			(all ? ids : ids.slice(0, TOP)).forEach(function(id) {
@@ -2059,8 +2107,6 @@ return view.extend({
 				if (!/^\d{6}$/.test(c)) { codeBox.appendChild(E('span', {}, 'Could not make a code: ' + c)); return; }
 				codeBox.appendChild(E('div', { 'class': 'tt-pair' }, c));
 				codeBox.appendChild(E('div', {}, [ 'Send ', E('code', {}, '/pair ' + c), ' to ' + (bot.username ? '@' + bot.username : 'your bot') + ' within 5 minutes. The code works once.' ]));
-				// Watch only bot.admin on the router: reloading the whole config every few
-				// seconds would throw away whatever is typed in this page and not saved yet.
 				var t0 = Date.now(), tick = setInterval(function() {
 					if (Date.now() - t0 > 300000 || !document.body.contains(codeBox)) { clearInterval(tick); return; }
 					callGetOpt(CONF, 'bot', 'admin').then(function(v) {
@@ -2068,7 +2114,6 @@ return view.extend({
 						if (n === self._admN) return;
 						clearInterval(tick);
 						self._admN = n;
-						// stage this page's edits first so the reload keeps them
 						return uci.save().then(reloadConf).then(function() {
 							paintAdm(); codeBox.innerHTML = ''; codeBox.appendChild(E('span', { 'class': 'tt-ok' }, 'Paired. The new admin is in the list above.'));
 						});
@@ -2363,8 +2408,6 @@ return view.extend({
 			if (!list.length) box.appendChild(E('em', { 'class': 'tt-muted' }, 'No schedule yet. e.g. night account 00:00 until 06:00.'));
 			list.forEach(function(sc) {
 				var id = sc['.name'], act = sc.action || 'account';
-				// every action has "until": tunnel on/off needs it; for an account or
-				// mode it switches back to the one used before (empty = the change stays)
 				var tun = act === 'tunnel';
 				var valSel = E('div', { 'class': 'tt-schwin' }, [
 					tun ? select(sc.value === 'on' ? 'on' : 'off', [ [ 'off', 'Off' ], [ 'on', 'On only' ] ], function(v) { uci.set(CONF, id, 'value', v); })
@@ -2437,7 +2480,6 @@ return view.extend({
 		list.forEach(function(x) { per[x.account || '—'] = (per[x.account || '—'] || 0) + 1; });
 		var self = this, cur = r.cFilter.value.trim();
 		r.cSum.innerHTML = '';
-		// chips take the corner radius of the filter box above, whatever the LuCI theme uses
 		try { var rad = getComputedStyle(r.cFilter).borderRadius; if (rad) r.cSum.style.setProperty('--tt-crad', rad); } catch (e) {}
 		var chip = function(label, n, val) {
 			var on = val === cur;

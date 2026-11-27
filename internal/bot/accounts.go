@@ -345,6 +345,9 @@ func typeLabel(p config.Profile) string {
 		} else if p.XSec == "reality" {
 			s += " REALITY"
 		}
+		if p.UseDNS {
+			s += " SlowDNS"
+		}
 		return s
 	}
 	if p.UseDNS {

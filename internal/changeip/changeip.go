@@ -104,9 +104,6 @@ func Run(ctx context.Context, c config.ChangeIP, wan string, log Logger) Result 
 	return res
 }
 
-// addrs is the public IP seen from outside and the address on the modem
-// interface. Mobile operators often hand out a private (CGNAT) address
-// such as 10.x, so the IP ranges are checked against both.
 type addrs struct{ pub, local string }
 
 func (a addrs) empty() bool { return a.pub == "" && a.local == "" }
@@ -125,7 +122,6 @@ func probe(ctx context.Context, dev, iface string) addrs {
 	return addrs{pub: publicIP(ctx, dev), local: IfaceIP(iface)}
 }
 
-// IfaceDevice returns the Linux device of an OpenWrt interface (wwan → usb0).
 func IfaceDevice(iface string) string {
 	if iface == "" {
 		return ""
@@ -147,9 +143,6 @@ func IfaceDevice(iface string) string {
 	return st.Dev
 }
 
-// IfaceUp reports whether the OpenWrt interface is up. An interface that
-// netifd does not know (a plain device name, no ifstatus) counts as up, so
-// only a real "down" stops anything.
 func IfaceUp(iface string) bool {
 	if iface == "" {
 		return true
@@ -192,9 +185,6 @@ func where(c config.ChangeIP) string {
 	return ""
 }
 
-// partial parses an IPv4 address that may be cut short ("10.19") and fills
-// the missing parts with fill: 10.19 is 10.19.0.0 as a start and
-// 10.19.255.255 as an end.
 func partial(s string, fill int) (netip.Addr, error) {
 	if strings.Contains(s, ":") {
 		return netip.ParseAddr(s)
@@ -218,10 +208,6 @@ func partial(s string, fill int) (netip.Addr, error) {
 	return netip.AddrFrom4(b), nil
 }
 
-// matchPrefix reports whether ip matches one of the entries. An entry is a
-// CIDR block (114.12.0.0/14), a dash range (114.12.0.0-114.15.255.255, or
-// short: 10.0-10.19) or a
-// plain text prefix (114.12.).
 func matchPrefix(ip string, pre []string) bool {
 	a, aerr := netip.ParseAddr(ip)
 	a = a.Unmap()

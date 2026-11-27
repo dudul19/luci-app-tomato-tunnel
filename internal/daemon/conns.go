@@ -14,12 +14,6 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/proxy"
 )
 
-// The Connections tab: every TCP connection and UDP flow the tunnel carries,
-// with the account it went out on, its traffic, the LAN device that opened it
-// (from conntrack) and the site name (from the tunnel DNS). It costs nothing
-// while nobody looks: the list file is only written for a few seconds after
-// `ctl conns` asked for it.
-
 var (
 	ConnsFile = RunDir + "/conns.json"
 	ConnsWant = RunDir + "/conns.want"
@@ -28,11 +22,11 @@ var (
 type flow struct {
 	id      uint64
 	proto   string
-	dst     atomic.Value // string, host:port
+	dst     atomic.Value
 	account string
 	start   time.Time
 	rx, tx  atomic.Int64
-	lrx     int64 // at the last snapshot
+	lrx     int64
 	ltx     int64
 }
 
@@ -40,7 +34,7 @@ type flowTable struct {
 	mu    sync.Mutex
 	next  uint64
 	m     map[uint64]*flow
-	names map[string]nameEntry // IP → DNS name
+	names map[string]nameEntry
 	last  time.Time
 }
 
@@ -69,12 +63,11 @@ func (t *flowTable) remove(f *flow) {
 	t.mu.Unlock()
 }
 
-// learnName keeps IP → name from the tunnel DNS answers (display only).
 func (t *flowTable) learnName(name string, ips []net.IP, ttl uint32) {
 	name = strings.TrimSuffix(strings.ToLower(name), ".")
 	d := time.Duration(ttl) * time.Second
 	if d < 30*time.Minute {
-		d = 30 * time.Minute // dnsmasq keeps answers in its cache for a while
+		d = 30 * time.Minute
 	}
 	exp := time.Now().Add(d)
 	t.mu.Lock()
@@ -95,8 +88,6 @@ func (t *flowTable) learnName(name string, ips []net.IP, ttl uint32) {
 	}
 }
 
-// trackConn counts a TCP connection's bytes; it keeps Raw/Counted so the
-// fast copy path stays as it was.
 type trackConn struct {
 	net.Conn
 	f    *flow
@@ -124,7 +115,6 @@ func (c *trackConn) Counted(read, written int64) {
 	}
 }
 
-// trackRelay counts a UDP flow; the destination is the first one it sends to.
 type trackRelay struct {
 	proxy.UDPRelay
 	f    *flow
@@ -145,7 +135,6 @@ func (r *trackRelay) Close() {
 	r.UDPRelay.Close()
 }
 
-// connsWanted: the page asked for the list in the last 10 seconds.
 func connsWanted() bool {
 	st, err := os.Stat(ConnsWant)
 	return err == nil && time.Since(st.ModTime()) < 10*time.Second
@@ -167,11 +156,10 @@ type connRow struct {
 
 type connsFile struct {
 	At     int64     `json:"at"`
-	Direct bool      `json:"direct,omitempty"` // TUN goes straight to Xray: no per-connection traffic
+	Direct bool      `json:"direct,omitempty"`
 	Conns  []connRow `json:"conns"`
 }
 
-// writeConns writes the list. Called from statusLoop about once a second.
 func (d *Daemon) writeConns() {
 	t := &d.flows
 	now := time.Now()
@@ -221,8 +209,7 @@ func (d *Daemon) writeConns() {
 		used[k] = true
 	}
 	if direct {
-		// TUN goes straight to Xray, so the tunnel never sees these one by one:
-		// list what conntrack knows, on the main account, without traffic numbers.
+
 		acct := ""
 		if p := d.pool.Load(); p != nil {
 			acct = p.P.Name
@@ -267,7 +254,6 @@ func appendUniq(l []string, s string) []string {
 	return append(l, s)
 }
 
-// conntrack maps "proto dstip:port" to the LAN sources with an open entry.
 func conntrack() map[string][]string {
 	out := map[string][]string{}
 	f, err := os.Open("/proc/net/nf_conntrack")
@@ -313,7 +299,6 @@ func conntrack() map[string][]string {
 	return out
 }
 
-// leaseNames: IP → host name from the DHCP leases.
 func leaseNames() map[string]string {
 	out := map[string]string{}
 	b, err := os.ReadFile(LeasesFile)

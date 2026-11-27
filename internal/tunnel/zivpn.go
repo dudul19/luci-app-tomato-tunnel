@@ -14,7 +14,6 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/zivpn/obfs"
 )
 
-// Same fixed Salamander PSK as the ZiVPN app and the Tomato ZiVPN server.
 const zivpnPSK = "hu``hqb`c"
 
 func init() { client.UseZivpnHeaders(true) }

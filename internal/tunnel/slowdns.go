@@ -28,13 +28,24 @@ type SlowDNS struct {
 	once  sync.Once
 }
 
-var autoTypes = []uint16{slowdns.RRTypeTXT, slowdns.RRTypeNULL, slowdns.RRTypeCNAME}
+var autoTypes = []uint16{slowdns.RRTypeTXT, slowdns.RRTypeNULL, slowdns.RRTypeCNAME, slowdns.RRTypeHTTPS, slowdns.RRTypeSVCB, slowdns.RRTypeDNSKEY}
 
-// NewSlowDNS starts a session. rtype is txt, null, cname, ns, mx, srv or auto
-// (tries TXT, NULL, then CNAME; prefer is tried first when set).
-func NewSlowDNS(ctx context.Context, domain, pubkeyHex, resolver, rtype string, prefer uint16, nd *net.Dialer, log *logx.Logger) (*SlowDNS, error) {
+type SlowDNSTune struct {
+	EDNS   int
+	Window int
+}
+
+const DefaultKCPWindow = 512
+
+const (
+	addrAckHold   = 40
+	addrKCPWindow = 4096
+	addrEDNS      = 1232
+)
+
+func NewSlowDNS(ctx context.Context, domain, pubkeyHex, resolver, rtype string, prefer uint16, tune SlowDNSTune, nd *net.Dialer, log *logx.Logger) (*SlowDNS, error) {
 	if t, ok := slowdns.TypeNames[strings.ToLower(rtype)]; ok {
-		return newSlowDNS(ctx, domain, pubkeyHex, resolver, t, 30*time.Second, nd, log)
+		return newSlowDNS(ctx, domain, pubkeyHex, resolver, t, 30*time.Second, tune, nd, log)
 	}
 	order := autoTypes
 	if prefer != 0 {
@@ -47,7 +58,7 @@ func NewSlowDNS(ctx context.Context, domain, pubkeyHex, resolver, rtype string, 
 			continue
 		}
 		tried[t] = true
-		s, err := newSlowDNS(ctx, domain, pubkeyHex, resolver, t, 10*time.Second, nd, log)
+		s, err := newSlowDNS(ctx, domain, pubkeyHex, resolver, t, 7*time.Second, tune, nd, log)
 		if err == nil {
 			return s, nil
 		}
@@ -60,7 +71,7 @@ func NewSlowDNS(ctx context.Context, domain, pubkeyHex, resolver, rtype string, 
 	return nil, lastErr
 }
 
-func newSlowDNS(ctx context.Context, domain, pubkeyHex, resolver string, qtype uint16, wait time.Duration, nd *net.Dialer, log *logx.Logger) (*SlowDNS, error) {
+func newSlowDNS(ctx context.Context, domain, pubkeyHex, resolver string, qtype uint16, wait time.Duration, tune SlowDNSTune, nd *net.Dialer, log *logx.Logger) (*SlowDNS, error) {
 	name, err := dns.ParseName(domain)
 	if err != nil {
 		return nil, fmt.Errorf("SlowDNS NS %q: %v", domain, err)
@@ -112,7 +123,12 @@ func newSlowDNS(ctx context.Context, domain, pubkeyHex, resolver string, qtype u
 	if err != nil {
 		return nil, fmt.Errorf("SlowDNS resolver %q: %v", resolver, err)
 	}
-	pconn = slowdns.NewDNSPacketConn(pconn, remote, name, qtype)
+	addr := qtype == slowdns.RRTypeA || qtype == slowdns.RRTypeAAAA
+	edns := tune.EDNS
+	if addr && (edns == 0 || edns == slowdns.DefaultEDNS) {
+		edns = addrEDNS
+	}
+	pconn = slowdns.NewDNSPacketConn(pconn, remote, name, qtype, edns)
 
 	conn, err := kcp.NewConn2(remote, nil, 0, 0, pconn)
 	if err != nil {
@@ -120,8 +136,21 @@ func newSlowDNS(ctx context.Context, domain, pubkeyHex, resolver string, qtype u
 		return nil, fmt.Errorf("SlowDNS KCP: %v", err)
 	}
 	conn.SetStreamMode(true)
+
 	conn.SetNoDelay(0, 0, 0, 1)
-	conn.SetWindowSize(turbotunnel.QueueSize/2, turbotunnel.QueueSize/2)
+	win := tune.Window
+	if win < 32 || win > 4096 {
+		win = DefaultKCPWindow
+	}
+	if addr {
+
+		conn.SetNoDelay(1, 10, 2, 1)
+		conn.SetAckHold(addrAckHold)
+		if tune.Window == 0 || tune.Window == DefaultKCPWindow {
+			win = addrKCPWindow
+		}
+	}
+	conn.SetWindowSize(win, win)
 	conn.SetMtu(mtu)
 
 	type res struct {
@@ -165,7 +194,11 @@ func newSlowDNS(ctx context.Context, domain, pubkeyHex, resolver string, qtype u
 		return nil, fmt.Errorf("SlowDNS smux: %v", err)
 	}
 	log.Okf("slowdns", "SlowDNS session up (NS %s, type %s, resolver %s)", domain, slowdns.TypeName(qtype), r)
-	return &SlowDNS{QType: qtype, pconn: pconn, kcp: conn, sess: sess}, nil
+	sd := &SlowDNS{QType: qtype, pconn: pconn, kcp: conn, sess: sess}
+	if OnSession != nil {
+		go OnSession(sd, log)
+	}
+	return sd, nil
 }
 
 func (s *SlowDNS) Open() (net.Conn, error) {
@@ -194,3 +227,5 @@ func dnsNameCapacity(domain dns.Name) int {
 	capacity = capacity * 63 / 64
 	return capacity * 5 / 8
 }
+
+var OnSession func(*SlowDNS, *logx.Logger)

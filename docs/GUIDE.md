@@ -98,7 +98,10 @@ Fields:
 - **Remote proxy**: connect through `ip:port`.
 - **UDPGW port**: UDP for games and calls (default `7300`, `0` = off).
 - **Allow insecure**: skip the certificate check (on by default, usual for bug hosts).
-- **SlowDNS**: NS, public key, record type, resolver.
+- **SlowDNS**: NS, public key, record type, resolver, EDNS0 size and KCP window.
+  - **Record type**: Automatic tries each type. TXT, NULL, CNAME, HTTPS, SVCB, DNSKEY, A, AAAA, NS, MX and SRV. Some carrier DNS only passes some types; HTTPS carries the most data per answer, A and AAAA the least.
+  - **Resolver**: **Auto** = the DNS the operator gave the modem or phone this account goes out through (for operators that block public DNS, such as XL OPOK), Cloudflare DoH, or a custom one (`1.2.3.4`, `1.2.3.4:53`, `https://…`, `dot:host:853`).
+  - **EDNS0 size** (512–4096, default 1400) and **KCP window** (default 512): leave them unless the server's seller says otherwise.
 
 Old Dropbear servers: **Settings › Network › SSH compatibility** (Auto handles them).
 
@@ -109,6 +112,13 @@ Host, UDP port, password. TCP and UDP.
 ### Xray
 
 VLESS, VMess or Trojan over TCP, WebSocket, HTTPUpgrade, gRPC or XHTTP, with TLS or REALITY. TCP and UDP. Paste the link in **Import from link**. Needs the Xray add-on.
+
+- **Over SlowDNS**: Xray through the DNS tunnel (Tomato 3.8+ servers), with WebSocket, HTTPUpgrade or XHTTP. Same SlowDNS fields as SSH. Slow, like SSH SlowDNS.
+- **Payload**: your own HTTP request goes first, then Xray's own WebSocket / HTTPUpgrade request. TCP, WebSocket or HTTPUpgrade with Security None or TLS (not REALITY, gRPC, XHTTP or SlowDNS).
+  - **Enhanced**: payload sent in parts at `[split]`, every reply to the payload is dropped until Xray gets its answer (`101`). Without it, the first reply must already be Xray's.
+  - **Send payload** (TLS only): **Inside TLS** (after the handshake, usual) or **Before TLS** (plain text, then Xray's TLS).
+  - **Bug host**, **Payload text** (same tags as SSH, empty = a simple GET), **[split] delay**, **Remote proxy**, **User-Agent**.
+  - Put the real server in **Address** and the bug host in **Bug host** / **SNI**. The server needs nothing special.
 
 ### Fields in every account
 
@@ -286,7 +296,7 @@ Level (Info, Debug, Errors), auto-scroll, download, clear.
 
 ## 16. Payload tags
 
-Case-insensitive. Unknown tags are sent as written.
+For SSH and Xray payloads. Case-insensitive. Unknown tags are sent as written. With Xray, its own request is added after the payload by itself: leave the `Upgrade` header out unless you know the server answers it.
 
 | Tag | Value |
 |---|---|
@@ -346,6 +356,10 @@ King3399 (RK3399, 2 GB), ImmortalWrt, TUN mode. 100 % = one core.
 
 **Page looks old after an update**: refresh with Ctrl+Shift+R, or clear the browser cache on a phone.
 
+**SlowDNS connects but there is no internet, or it is very slow**: try another resolver (Custom) and the HTTPS record type. A and AAAA carry little data per answer, so they are the slowest.
+
+**Xray with payload: "server answered … not 101"**: turn on Enhanced, or check Bug host, Path and Host header.
+
 ## 19. Version history
 
 | Version | Highlights |
@@ -361,6 +375,7 @@ King3399 (RK3399, 2 GB), ImmortalWrt, TUN mode. 100 % = one core.
 | 1.6.0 | Several modems, IP ranges, Go out through, Balance, new payload tags, banner header |
 | 1.7.0 | New look, Connections tab, real ping, Fallback goes back, Block QUIC, Direct domains, Schedule |
 | 1.7.1 | Tunnel on/off schedule, faster DNS, no more late notifications, Balance by weight, save fix on OpenWrt 24.10 |
+| 1.7.3 | Xray over SlowDNS, payload for Xray (Enhanced, inside / before TLS), new SlowDNS record types HTTPS, SVCB, DNSKEY, A and AAAA (DNS64 networks too), resolver Auto (operator DNS), EDNS0 and KCP window settings, steadier A/AAAA, Stop no longer hangs on a stuck SlowDNS, phone button layout fix |
 | 1.7.2 | One Xray process for Balance (about half the RAM), YouTube fix (Block QUIC Auto, YouTube on one account), steadier Balance main account, Schedule "until", Tailscale through the tunnel + LuCI over Tailscale, Usage "Show all", phone layout fixes, shorter texts, faster page load |
 
 ---

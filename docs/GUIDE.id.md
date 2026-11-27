@@ -98,7 +98,10 @@ Kolom:
 - **Remote proxy**: sambung lewat `ip:port`.
 - **UDPGW port**: UDP untuk game dan telepon (default `7300`, `0` = mati).
 - **Allow insecure**: lewati cek sertifikat (default nyala, biasa untuk bug host).
-- **SlowDNS**: NS, public key, jenis record, resolver.
+- **SlowDNS**: NS, public key, jenis record, resolver, ukuran EDNS0, dan KCP window.
+  - **Record type**: Automatic mencoba tiap jenis. TXT, NULL, CNAME, HTTPS, SVCB, DNSKEY, A, AAAA, NS, MX, dan SRV. Sebagian DNS operator hanya meloloskan jenis tertentu; HTTPS membawa data paling banyak per jawaban, A dan AAAA paling sedikit.
+  - **Resolver**: **Auto** = DNS yang diberikan operator ke modem atau HP yang dipakai akun ini (untuk operator yang memblokir DNS publik, seperti XL OPOK), Cloudflare DoH, atau isi sendiri (`1.2.3.4`, `1.2.3.4:53`, `https://…`, `dot:host:853`).
+  - **EDNS0 size** (512–4096, bawaan 1400) dan **KCP window** (bawaan 512): biarkan, kecuali penjual server bilang lain.
 
 Server Dropbear lama: **Settings › Network › SSH compatibility** (Auto sudah menanganinya).
 
@@ -109,6 +112,13 @@ Host, port UDP, password. TCP dan UDP.
 ### Xray
 
 VLESS, VMess, atau Trojan lewat TCP, WebSocket, HTTPUpgrade, gRPC, atau XHTTP, dengan TLS atau REALITY. TCP dan UDP. Tempel link di **Import from link**. Butuh add-on Xray.
+
+- **Over SlowDNS**: Xray lewat terowongan DNS (server Tomato 3.8+), dengan WebSocket, HTTPUpgrade, atau XHTTP. Kolom SlowDNS sama seperti SSH. Lambat, seperti SSH SlowDNS.
+- **Payload**: request HTTP buatanmu dikirim dulu, lalu request WebSocket / HTTPUpgrade milik Xray sendiri. Untuk TCP, WebSocket, atau HTTPUpgrade dengan Security None atau TLS (bukan REALITY, gRPC, XHTTP, atau SlowDNS).
+  - **Enhanced**: payload dikirim terpisah di `[split]`, semua balasan untuk payload dibuang sampai Xray dapat jawabannya (`101`). Tanpa Enhanced, balasan pertama harus sudah milik Xray.
+  - **Send payload** (khusus TLS): **Inside TLS** (setelah handshake, biasanya) atau **Before TLS** (teks biasa, lalu TLS milik Xray).
+  - **Bug host**, **Payload text** (tag sama seperti SSH, kosong = GET sederhana), **[split] delay**, **Remote proxy**, **User-Agent**.
+  - Isi server asli di **Address** dan bug host di **Bug host** / **SNI**. Server tidak perlu pengaturan khusus.
 
 ### Kolom di semua akun
 
@@ -286,7 +296,7 @@ Level (Info, Debug, Errors), auto-scroll, unduh, hapus.
 
 ## 16. Tag payload
 
-Huruf besar/kecil sama saja. Tag yang tidak dikenal dikirim apa adanya.
+Untuk payload SSH dan Xray. Huruf besar/kecil sama saja. Tag yang tidak dikenal dikirim apa adanya. Di Xray, request milik Xray otomatis ditambahkan setelah payload: jangan pakai header `Upgrade` kecuali yakin server menjawabnya.
 
 | Tag | Nilai |
 |---|---|
@@ -346,6 +356,10 @@ King3399 (RK3399, 2 GB), ImmortalWrt, mode TUN. 100 % = satu core.
 
 **Tampilan masih lama setelah update**: refresh dengan Ctrl+Shift+R, atau hapus cache browser di HP.
 
+**SlowDNS tersambung tapi tidak ada internet, atau sangat lambat**: coba resolver lain (Custom) dan jenis record HTTPS. A dan AAAA membawa sedikit data per jawaban, jadi paling lambat.
+
+**Xray dengan payload: "server answered … not 101"**: nyalakan Enhanced, atau cek Bug host, Path, dan Host header.
+
 ## 19. Riwayat versi
 
 | Versi | Isi utama |
@@ -361,6 +375,7 @@ King3399 (RK3399, 2 GB), ImmortalWrt, mode TUN. 100 % = satu core.
 | 1.6.0 | Multi modem, rentang IP, Go out through, Balance, tag payload baru, banner di semua tab |
 | 1.7.0 | Tampilan baru, tab Connections, ping sungguhan, Fallback kembali, Block QUIC, Direct domains, Schedule |
 | 1.7.1 | Jadwal tunnel on/off, DNS lebih cepat, notifikasi tidak telat lagi, Balance sesuai weight, perbaikan simpan di OpenWrt 24.10 |
+| 1.7.3 | Xray lewat SlowDNS, payload untuk Xray (Enhanced, di dalam / sebelum TLS), jenis record SlowDNS baru HTTPS, SVCB, DNSKEY, A, dan AAAA (juga jaringan DNS64), resolver Auto (DNS operator), pengaturan EDNS0 dan KCP window, A/AAAA lebih stabil, Stop tidak macet lagi saat SlowDNS tersendat, perbaikan tata letak tombol di HP |
 | 1.7.2 | Satu proses Xray untuk Balance (RAM sekitar separuh), perbaikan YouTube (Block QUIC Auto, YouTube di satu akun), akun utama Balance lebih stabil, Schedule "until", Tailscale lewat tunnel + LuCI lewat Tailscale, Usage "Show all", perbaikan tampilan HP, teks lebih singkat, halaman lebih cepat terbuka |
 
 ---

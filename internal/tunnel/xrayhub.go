@@ -16,31 +16,20 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/logx"
 )
 
-// The shared Xray: in Balance every Xray account runs in one Xray process
-// instead of one process each (about 40 MB of RAM per process). Each account
-// is added to it and removed again at run time (ttxray -ctl: one JSON line per
-// command on stdin), so a new, changed or failed account never touches the
-// others. An account that stops answering is only skipped by Balance, like an
-// account in a Clash load-balance group. If the process itself exits, every
-// account in it ends and Balance connects them again, which starts a new one.
-
-// hubIdle is how long the shared Xray stays up with no account in it, so a
-// reconnect does not restart it.
 var hubIdle = 10 * time.Second
 
 type xrayHub struct {
 	mu   sync.Mutex
-	x    *xrayProc // the running shared Xray; its refs counts the accounts in it
+	x    *xrayProc
 	in   io.WriteCloser
 	seq  int
-	gen  int                    // starts, for the config file name
-	old  bool                   // the installed Xray add-on has no -ctl (older than 1.7.2): one Xray per account
-	wait map[string]chan string // reply per account tag: "" ok, else the error
+	gen  int
+	old  bool
+	wait map[string]chan string
 }
 
 var hub = &xrayHub{wait: map[string]chan string{}}
 
-// start runs the shared Xray if it is not running. Call with h.mu held.
 func (h *xrayHub) start(log *logx.Logger, o XrayOpts) error {
 	if h.x != nil {
 		return nil
@@ -54,7 +43,7 @@ func (h *xrayHub) start(log *logx.Logger, o XrayOpts) error {
 	}
 	rules := xrayBlockRules(o)
 	if rules == nil {
-		rules = []any{} // a "routing" section is needed for rules added later
+		rules = []any{}
 	}
 	cfg := map[string]any{
 		"log":       map[string]any{"loglevel": "warning"},
@@ -72,8 +61,7 @@ func (h *xrayHub) start(log *logx.Logger, o XrayOpts) error {
 		dir = os.TempDir()
 	}
 	os.MkdirAll(dir, 0700)
-	// a new name each start: an Xray that is just exiting removes its own
-	// file, which must not be the one the next Xray is about to read
+
 	h.gen++
 	conf := filepath.Join(dir, fmt.Sprintf("xray-shared-%d.json", h.gen))
 	if err := os.WriteFile(conf, b, 0600); err != nil {
@@ -122,10 +110,10 @@ func (h *xrayHub) start(log *logx.Logger, o XrayOpts) error {
 			x.addLine(l)
 			log.Debugf("xray", "%s", cleanXrayLine(l))
 		}
-		io.Copy(io.Discard, out) // a line too long stops the scanner: keep reading, else Xray blocks
+		io.Copy(io.Discard, out)
 	}()
 	go func() {
-		<-scanned // every line read (the -ctl check needs the last ones) before Wait
+		<-scanned
 		cmd.Wait()
 		xrayLive.Delete(cmd.Process.Pid)
 		x.mu.Lock()
@@ -152,7 +140,6 @@ func (h *xrayHub) reply(tag, msg string) {
 	}
 }
 
-// send writes one command. Call with h.mu held.
 func (h *xrayHub) send(op, tag string, conf any) error {
 	if h.in == nil {
 		return ErrNoSession
@@ -169,8 +156,6 @@ func (h *xrayHub) send(op, tag string, conf any) error {
 	return err
 }
 
-// add puts one account (its inbound in-T, outbound out-T and rule r-T) into
-// the shared Xray and returns the account's view of it.
 func (h *xrayHub) add(ctx context.Context, log *logx.Logger, o XrayOpts, port int, out map[string]any) (*xrayProc, error) {
 	h.mu.Lock()
 	if err := h.start(log, o); err != nil {
@@ -223,14 +208,12 @@ func (h *xrayHub) add(ctx context.Context, log *logx.Logger, o XrayOpts, port in
 	return &xrayProc{port: port, done: parent.done, tag: tag, parent: parent}, nil
 }
 
-// release takes an account out and stops the shared Xray once it has been
-// empty for hubIdle.
 func (h *xrayHub) release(tag string, parent *xrayProc) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.wait, tag)
 	if h.x != parent {
-		return // that Xray has exited already
+		return
 	}
 	parent.refs--
 	h.send("rm", tag, nil)
@@ -247,7 +230,7 @@ func (h *xrayHub) release(tag string, parent *xrayProc) {
 		in := h.in
 		h.x, h.in = nil, nil
 		h.mu.Unlock()
-		in.Close() // ttxray exits when its stdin closes
+		in.Close()
 		select {
 		case <-x.done:
 		case <-time.After(3 * time.Second):
@@ -256,9 +239,6 @@ func (h *xrayHub) release(tag string, parent *xrayProc) {
 	})
 }
 
-// track keeps a connection of a shared account, so removing the account
-// closes it (the process, which would have closed it, keeps running).
-// It is false once the account is gone.
 func (x *xrayProc) track(key any, close func()) bool {
 	if x == nil || x.tag == "" {
 		return true
@@ -284,7 +264,6 @@ func (x *xrayProc) untrack(key any) {
 	x.mu.Unlock()
 }
 
-// leave removes a shared account and closes its connections.
 func (x *xrayProc) leave() {
 	x.mu.Lock()
 	if x.gone {

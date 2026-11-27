@@ -17,8 +17,7 @@ type DNS struct {
 	Server string
 	Up     Upstream
 	Log    *logx.Logger
-	// OnAnswer, when set, gets the name asked for and the addresses in the
-	// answer, so the Connections list can show names instead of bare IPs.
+
 	OnAnswer func(name string, ips []net.IP, ttl uint32)
 	pc       net.PacketConn
 	ln       net.Listener
@@ -28,10 +27,6 @@ type DNS struct {
 	turn  int
 }
 
-// dnsConns persistent DNS-over-TCP connections are kept to the server. A new
-// connection per query costs a full tunnel handshake (TLS and WebSocket for
-// Xray), about 200 ms; a kept one answers in one round trip. Queries are
-// pipelined on it (RFC 7766) and matched by a DNS ID of our own.
 const dnsConns = 2
 
 type dnsConn struct {
@@ -44,7 +39,7 @@ type dnsConn struct {
 }
 
 type dnsWait struct {
-	id uint16 // the client's own ID, put back into the answer
+	id uint16
 	ch chan []byte
 }
 
@@ -114,7 +109,7 @@ func (d *DNS) ask(q []byte) []byte {
 	}
 	ans, err := d.askKept(q)
 	if errors.Is(err, errDNSConn) {
-		ans, err = d.askKept(q) // the kept connection had died: once more on a fresh one
+		ans, err = d.askKept(q)
 	}
 	if err != nil {
 		d.Log.Debugf("dns", "%v", err)
@@ -126,7 +121,6 @@ func (d *DNS) ask(q []byte) []byte {
 	return ans
 }
 
-// conn returns a live kept connection, dialing one for an empty slot.
 func (d *DNS) conn() (*dnsConn, error) {
 	d.mu.Lock()
 	d.turn++
@@ -150,7 +144,7 @@ func (d *DNS) conn() (*dnsConn, error) {
 	go nc.read()
 	d.mu.Lock()
 	if old := d.slots[i]; old != nil && old != dc {
-		// another query filled the slot meanwhile: use that one, drop ours
+
 		old.mu.Lock()
 		dead := old.dead
 		old.mu.Unlock()
@@ -202,7 +196,7 @@ func (d *DNS) askKept(q []byte) ([]byte, error) {
 		}
 		return ans, nil
 	case <-time.After(5 * time.Second):
-		// no answer: the connection may be half dead, so start over on a new one
+
 		dc.close()
 		return nil, errors.New("dns: no answer in 5 s")
 	}
@@ -231,7 +225,6 @@ func (dc *dnsConn) read() {
 	}
 }
 
-// close ends the connection and fails every query still waiting on it.
 func (dc *dnsConn) close() {
 	dc.mu.Lock()
 	if dc.dead {

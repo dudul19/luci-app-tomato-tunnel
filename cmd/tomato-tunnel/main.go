@@ -337,9 +337,6 @@ func doUpdate(cmd string) int {
 	return 2
 }
 
-// scheduleSync writes the tunnel on/off windows of Settings › Schedule into
-// root's crontab (lines ending in config.CronMark), replacing the old ones,
-// and restarts cron when they changed.
 func scheduleSync() int {
 	c, err := config.Load(config.DefaultPath)
 	if err != nil {

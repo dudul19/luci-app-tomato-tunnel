@@ -129,8 +129,8 @@ type Daemon struct {
 	lastIPChange time.Time
 	lastIP       map[string]time.Time
 	bal          *balancer
-	flows        flowTable   // open connections, for the Connections tab
-	mainBad      atomic.Bool // the main pool failed its last check
+	flows        flowTable
+	mainBad      atomic.Bool
 	failRun      int
 }
 
@@ -169,14 +169,12 @@ func (d *Daemon) track(c net.Conn, addr, account string) net.Conn {
 	proto := "tcp"
 	if h, _, err := net.SplitHostPort(addr); err == nil {
 		if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() {
-			proto, addr = "udp", "UDPGW" // the server's UDP gateway: all UDP of one device app
+			proto, addr = "udp", "UDPGW"
 		}
 	}
 	return &trackConn{Conn: c, f: d.flows.add(proto, addr, account), t: &d.flows}
 }
 
-// BlockQUIC: the "Block QUIC" setting (read live, so Save applies it at once).
-// Auto blocks it unless the main account is ZiVPN, which carries UDP as UDP.
 func (d *Daemon) BlockQUIC() bool {
 	switch d.cfg.Main.QUICMode {
 	case "on":
@@ -188,7 +186,6 @@ func (d *Daemon) BlockQUIC() bool {
 	return p == nil || !p.IsZivpn()
 }
 
-// NativeUDPTo: a flow to a Direct domain leaves through the modem, the rest as NativeUDP.
 func (d *Daemon) NativeUDPTo(dst *net.UDPAddr, onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool, error) {
 	if dst != nil && d.directFor(dst.IP.String()) {
 		var fp atomic.Pointer[flow]
@@ -269,6 +266,9 @@ func (d *Daemon) UDPGWPort() int {
 func Run(cfgPath string, foreground bool) error {
 	os.MkdirAll(RunDir, 0700)
 	log := logx.New(LogFile, 1000, foreground)
+	if logx.OnOpen != nil {
+		logx.OnOpen(log)
+	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		log.Errorf("config", "%v", err)
@@ -395,7 +395,7 @@ func (d *Daemon) activate(pool *tunnel.Pool, countReconnect bool) {
 	p := pool.P
 	d.pool.Store(pool)
 	d.mu.Lock()
-	d.rxBase, d.txBase = pool.RX.Load(), pool.TX.Load() // a Balance session handed over keeps its counters
+	d.rxBase, d.txBase = pool.RX.Load(), pool.TX.Load()
 	d.mainBad.Store(false)
 	if countReconnect {
 		d.countReconnect()
@@ -441,10 +441,6 @@ func (d *Daemon) retargetHev() {
 	exec.Command(NetScript, "routes").Run()
 }
 
-// IdleTCP is how long an idle TCP connection is kept through the tunnel
-// (hev and Xray both default to 5 minutes). Push channels such as Google FCM
-// (WhatsApp notifications) send a heartbeat only every 15 to 28 minutes, so
-// 5 minutes cut them and notifications came late.
 const IdleTCP = tunnel.IdleTCP
 
 func (d *Daemon) stopHev() {
@@ -472,8 +468,7 @@ func (d *Daemon) newPool(p config.Profile) *tunnel.Pool {
 	}
 	np := tunnel.NewPool(p, m.SSHCompat, iface, d.log)
 	np.X = XrayOpts(m)
-	// Balance: every Xray account in one shared Xray process (about 40 MB less
-	// per extra account); the main one too, since it takes turns with the others
+
 	np.X.Shared = d.balancing()
 	return np
 }
@@ -705,7 +700,6 @@ func (d *Daemon) startMeasure(ctx context.Context) {
 	d.measureOf(ctx, profiles)
 }
 
-// measureOf tests the given accounts in the background; the report arrives on autoRes.
 func (d *Daemon) measureOf(ctx context.Context, profiles []config.Profile) {
 	if len(profiles) == 0 || !d.measuring.CompareAndSwap(false, true) {
 		return
@@ -804,7 +798,7 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 			if d.policy() == "auto" {
 				d.startMeasure(ctx)
 			} else if p, ok := d.fallbackHome(pool); ok && time.Since(since) >= fallbackSettle {
-				d.measureOf(ctx, []config.Profile{p}) // is the chosen account back?
+				d.measureOf(ctx, []config.Profile{p})
 			}
 		case rep := <-d.autoRes:
 			for k, r := range rep.Results {
@@ -841,12 +835,14 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 			}
 		case <-t.C:
 			d.ensureHev()
-			ms, err := check(pool, m.CheckURL, m.UnifiedDelay)
+			ms, err := check(ctx, pool, m.CheckURL, m.UnifiedDelay)
+			if ctx.Err() != nil {
+				return monResult{reason: "stopped"}
+			}
 			if err != nil {
 				failed++
 				if failed >= pauseAfter {
-					// one slow answer (a busy link, a hiccup at the bug host) is not
-					// enough to pause the main account or hand it over in Balance
+
 					d.mainBad.Store(true)
 				}
 				d.log.Warnf("ping", "Ping %s failed: %s (%d/%d)", host, shortErr(err), failed, m.CheckFail)
@@ -866,12 +862,9 @@ func (d *Daemon) monitor(ctx context.Context, pool *tunnel.Pool) monResult {
 const (
 	AutoInterval   = 5 * time.Minute
 	AutoMargin     = 20
-	fallbackSettle = 3 * time.Minute // least time on a backup account before Fallback tries to go back
+	fallbackSettle = 3 * time.Minute
 )
 
-// fallbackHome is the chosen account when Fallback runs on another one and
-// may go back to it (setting on, account usable). Read fresh from the config,
-// so a choice made on the page counts at once.
 func (d *Daemon) fallbackHome(cur *tunnel.Pool) (config.Profile, bool) {
 	if cur == nil || d.policy() != "fallback" || !d.cfg.Main.FallbackBack {
 		return config.Profile{}, false
@@ -957,22 +950,22 @@ func (d *Daemon) handleCmds(ctx context.Context) {
 	}
 }
 
-// check opens the check URL through the tunnel on a fresh connection, so a
-// broken tunnel is always noticed. With unified on (like Clash unified-delay)
-// a second request goes over that same warm connection and its time is the
-// ping: tunnel and remote handshakes are left out, only the round trip counts.
-func check(pool *tunnel.Pool, url string, unified bool) (int64, error) {
+func check(ctx context.Context, pool *tunnel.Pool, url string, unified bool) (int64, error) {
 	tr := &http.Transport{
 		DialContext:         func(ctx context.Context, _, addr string) (net.Conn, error) { return pool.Dial(addr) },
 		DisableKeepAlives:   !unified,
 		MaxIdleConnsPerHost: 1,
 	}
 	defer tr.CloseIdleConnections()
-	cl := &http.Client{Transport: tr, Timeout: 10 * time.Second,
+	cl := &http.Client{Transport: tr, Timeout: pool.CheckTimeout(),
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	get := func() (int64, error) {
 		start := time.Now()
-		resp, err := cl.Get(url)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return 0, err
+		}
+		resp, err := cl.Do(req)
 		if err != nil {
 			return 0, err
 		}

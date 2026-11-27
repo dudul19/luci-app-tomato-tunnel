@@ -35,6 +35,7 @@ type Pool struct {
 	streams atomic.Int64
 	zv      client.Client
 	xr      *xrayProc
+	dnsLn   net.Listener
 	X       XrayOpts
 }
 
@@ -61,6 +62,10 @@ func (p *Pool) Connect(ctx context.Context, n int) error {
 	}
 	if p.IsXray() {
 		return p.connectXray(ctx)
+	}
+	if p.P.UseDNS {
+
+		n = 1
 	}
 	c, info, err := p.open(ctx, 1)
 	if err != nil {
@@ -149,6 +154,14 @@ func (p *Pool) watch(s *slot, idx int) {
 	}()
 }
 
+func (p *Pool) CheckTimeout() time.Duration {
+	return 10 * time.Second
+}
+
+func (p *Pool) kaWait() time.Duration {
+	return keepaliveWait
+}
+
 func (p *Pool) alive(s *slot, idx int) bool {
 	if s.probe.Load() {
 		if p.channelProbe(s) {
@@ -167,7 +180,7 @@ func (p *Pool) alive(s *slot, idx int) bool {
 		return err == nil
 	case <-p.ctx.Done():
 		return true
-	case <-time.After(keepaliveWait):
+	case <-time.After(p.kaWait()):
 	}
 	if p.channelProbe(s) {
 		s.probe.Store(true)
@@ -194,7 +207,7 @@ func (p *Pool) channelProbe(s *slot) bool {
 		return true
 	case <-p.ctx.Done():
 		return true
-	case <-time.After(keepaliveWait):
+	case <-time.After(p.kaWait()):
 		return false
 	}
 }
@@ -263,7 +276,6 @@ func (p *Pool) kill() {
 
 func (p *Pool) Dead() <-chan struct{} { return p.dead }
 
-// Alive reports whether the pool has not died yet.
 func (p *Pool) Alive() bool {
 	select {
 	case <-p.dead:
@@ -273,7 +285,6 @@ func (p *Pool) Alive() bool {
 	}
 }
 
-// Streams is the number of connections open through this pool.
 func (p *Pool) Streams() int64 { return p.streams.Load() }
 
 func (p *Pool) Sessions() int {
@@ -349,7 +360,12 @@ func (p *Pool) Close() {
 	p.zv = nil
 	xr := p.xr
 	p.xr = nil
+	dnsLn := p.dnsLn
+	p.dnsLn = nil
 	p.mu.Unlock()
+	if dnsLn != nil {
+		dnsLn.Close()
+	}
 	if zv != nil {
 		zv.Close()
 	}
@@ -357,10 +373,11 @@ func (p *Pool) Close() {
 		xr.stop()
 	}
 	p.cancel()
+
+	p.dialer.Close()
 	for _, s := range slots {
 		s.c.Close()
 	}
-	p.dialer.Close()
 	p.kill()
 }
 
@@ -368,7 +385,7 @@ type countConn struct {
 	net.Conn
 	p    *Pool
 	s    *slot
-	xr   *xrayProc // shared Xray account: forget the connection on Close
+	xr   *xrayProc
 	once sync.Once
 }
 

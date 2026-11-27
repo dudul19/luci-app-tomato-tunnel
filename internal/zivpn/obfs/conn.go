@@ -7,11 +7,8 @@ import (
 	"time"
 )
 
-const udpBufferSize = 2048 // QUIC packets are at most 1500 bytes long, so 2k should be more than enough
+const udpBufferSize = 2048
 
-// obfuscator wraps a per-packet, length-preserving cipher.
-// Obfuscate / Deobfuscate return the number of bytes written to out.
-// If a packet is not valid, the methods should return 0.
 type obfuscator interface {
 	Obfuscate(in, out []byte) int
 	Deobfuscate(in, out []byte) int
@@ -29,11 +26,6 @@ type obfsPacketConn struct {
 	writeMutex sync.Mutex
 }
 
-// udpLikePacketConn is the subset of *net.UDPConn methods that quic-go relies
-// on for UDP-specific optimizations (DF/PMTU detection and recv/send buffer
-// sizing). Anything that satisfies this interface — including a wrapper such
-// as realm.PunchPacketConn that proxies these calls down to a *net.UDPConn —
-// will keep those optimizations when wrapped in obfs.
 type udpLikePacketConn interface {
 	net.PacketConn
 	SyscallConn() (syscall.RawConn, error)
@@ -41,18 +33,11 @@ type udpLikePacketConn interface {
 	SetWriteBuffer(int) error
 }
 
-// obfsPacketConnUDP is a special case of obfsPacketConn that wraps a
-// UDP-flavored PacketConn. We pass additional methods through to quic-go to
-// enable UDP-specific optimizations.
 type obfsPacketConnUDP struct {
 	*obfsPacketConn
 	UDPConn udpLikePacketConn
 }
 
-// wrapPacketConn enables per-packet obfuscation on a net.PacketConn.
-// The obfuscation is transparent to the caller - the n bytes returned by
-// ReadFrom and WriteTo are the number of original bytes, not after
-// obfuscation/deobfuscation.
 func wrapPacketConn(conn net.PacketConn, ob obfuscator) net.PacketConn {
 	opc := &obfsPacketConn{
 		Conn:     conn,
@@ -83,7 +68,7 @@ func (c *obfsPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 		if n > 0 || err != nil {
 			return n, addr, err
 		}
-		// Invalid packet, try again
+
 	}
 }
 
@@ -117,8 +102,6 @@ func (c *obfsPacketConn) SetReadDeadline(t time.Time) error {
 func (c *obfsPacketConn) SetWriteDeadline(t time.Time) error {
 	return c.Conn.SetWriteDeadline(t)
 }
-
-// UDP-specific methods below
 
 func (c *obfsPacketConnUDP) SetReadBuffer(bytes int) error {
 	return c.UDPConn.SetReadBuffer(bytes)

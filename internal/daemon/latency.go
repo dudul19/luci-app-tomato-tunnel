@@ -35,17 +35,12 @@ func ProfileKey(p config.Profile) string {
 	return p.ID
 }
 
-// Measure gives every profile a real delay: it logs in with the account
-// (SSH, Xray, ZiVPN, SlowDNS…) and times a request to the check URL through it,
-// like the "real delay" test in v2rayN. A dead, locked or expired account fails
-// here even when its server still answers TCP. Accounts that are running right
-// now keep their live ping, so no second login is opened for them.
 func Measure(ctx context.Context, m config.Main, profiles []config.Profile, timeout time.Duration) LatencyReport {
 	rep := LatencyReport{Results: map[string]LatencyResult{}}
 	live := livePings()
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 3) // Xray accounts start a core each; keep the router light
+	sem := make(chan struct{}, 3)
 	for _, p := range profiles {
 		wg.Add(1)
 		go func(p config.Profile) {
@@ -78,8 +73,6 @@ func Measure(ctx context.Context, m config.Main, profiles []config.Profile, time
 	return rep
 }
 
-// realDelay connects the account, then times the check URL through it (unified
-// delay: the second request on a warm connection; otherwise the faster of two).
 func realDelay(ctx context.Context, m config.Main, p config.Profile) (int64, error) {
 	pool := tunnel.NewPool(p, m.SSHCompat, m.WanIface, logx.New("", 10, false))
 	pool.X = XrayOpts(m)
@@ -91,10 +84,10 @@ func realDelay(ctx context.Context, m config.Main, p config.Profile) (int64, err
 	var last error
 	tries := 2
 	if m.UnifiedDelay {
-		tries = 1 // check already warms the connection and times the second request
+		tries = 1
 	}
 	for i := 0; i < tries && ctx.Err() == nil; i++ {
-		ms, err := check(pool, m.CheckURL, m.UnifiedDelay)
+		ms, err := check(ctx, pool, m.CheckURL, m.UnifiedDelay)
 		if err != nil {
 			last = err
 			continue
@@ -112,7 +105,6 @@ func realDelay(ctx context.Context, m config.Main, p config.Profile) (int64, err
 	return best, nil
 }
 
-// livePings reads the running tunnel's own pings (main account and Balance accounts).
 func livePings() map[string]int64 {
 	out := map[string]int64{}
 	b, err := os.ReadFile(StatusFile)

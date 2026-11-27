@@ -77,7 +77,6 @@ case "$1" in
 		"$BIN" latency
 		;;
 	conns)
-		# the daemon writes the list only while someone asks (cheap when nobody looks)
 		touch "$RUN/conns.want"
 		running || { echo '{"conns":[]}'; exit 0; }
 		for i in 1 2 3; do
@@ -138,7 +137,6 @@ case "$1" in
 		/usr/bin/tomato-tunnel schedule-sync
 		;;
 	schedule-start|schedule-stop)
-		# run by cron for Settings > Schedule tunnel windows
 		what=${1#schedule-}
 		echo "$(date +%H:%M:%S)  schedule Tunnel $( [ "$what" = start ] && echo on || echo off ) by schedule" >> "$RUN/tunnel.log"
 		logger -t tomato-tunnel "schedule: tunnel $what"
@@ -191,7 +189,6 @@ case "$1" in
 		cat "$RUN/update.json" 2>/dev/null || echo '{}'
 		;;
 	wanlist)
-		# OpenWrt interface and its live device: "wan wwan0"
 		for i in $(uci -q show network | sed -n 's/^network\.\([^.=]*\)=interface$/\1/p'); do
 			case "$i" in loopback|lan) continue;; esac
 			echo "$i $(ifstatus "$i" 2>/dev/null | jsonfilter -q -e '@.l3_device')"
@@ -216,8 +213,6 @@ case "$1" in
 				*) rm -f "$f"; echo "only JPG, PNG or WebP"; exit 1 ;;
 			esac
 		fi
-		# rpcd runs with umask 077: new dirs are 700 and the upload is 600,
-		# and uhttpd only serves world-readable files inside /www.
 		mkdir -p /etc/tomato-tunnel "$WWW"
 		chmod 755 "$WWW"
 		mv "$f" "$BANNER" && chmod 644 "$BANNER" || { echo "could not save the image"; exit 1; }

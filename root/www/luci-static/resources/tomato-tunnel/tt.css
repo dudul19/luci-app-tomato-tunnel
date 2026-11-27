@@ -281,7 +281,7 @@
 	.tt-banner { height: 64px; }
 	.tt-banner .tt-bt { left: 14px; top: 12px; }
 	.tt-banner .tt-name { font-size: 20px; }
-	.tt-head .tt-actions { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); width: 100%; }
+	.tt-head .tt-actions { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; }
 	.tt-head .tt-actions .cbi-button { min-height: 40px; }
 	.tt-dash2 .tt-chartbox, .tt-dash2 .tt-chartbox svg { height: 90px; }
 	.tt-sechead h3 { flex: 1 1 100%; }
@@ -405,7 +405,6 @@ svg.tt-wm { background: transparent !important; }
 .tt-pair { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 1.8em; letter-spacing: .25em; margin: .3em 0; }
 .tt-warnc { color: #c58a12; }
 .tt-cgap { fill: currentColor; opacity: .07; }
-/* 1.6: taller banner, wordmark left-aligned and vertically centred */
 .tt-banner { height: 104px; }
 .tt-banner .tt-bt { top: 0; bottom: 0; left: 28px; justify-content: center; align-items: flex-start; gap: 4px; }
 .tt-banner .tt-bt svg.tt-wm { height: 48px; }
@@ -418,7 +417,6 @@ svg.tt-wm { background: transparent !important; }
 .tt-bthumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .tt-bown { display: flex; gap: .4em; }
 .tt-bown .cbi-button { min-height: 30px; padding: .15em .7em !important; font-size: 12px; font-weight: normal; }
-/* 1.6: modems and IP ranges */
 .tt-mlist .tt-mi { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 1em; }
 .tt-mn, .tt-mip { display: flex; flex-direction: column; gap: .2em; min-width: 0; }
 .tt-mr { display: flex; flex-wrap: wrap; gap: .35em; min-width: 0; }
@@ -444,7 +442,6 @@ svg.tt-wm { background: transparent !important; }
 	.tt-rg > .tt-ss { grid-column: 1 / -1; grid-row: 2; }
 	.tt-rgh { display: none; }
 }
-/* Balance */
 .tt-tile.bal { border-color: #2b8fd6; border-style: dashed; }
 .tt-tile.bal .tt-radio { border-color: #2b8fd6; background: radial-gradient(circle, #2b8fd6 0 3px, transparent 4px); }
 .tt-bal { border: 1px solid rgba(127, 127, 127, .4); margin: .8em 0; }
@@ -457,7 +454,6 @@ svg.tt-wm { background: transparent !important; }
 	.tt-balr > :nth-child(3) { grid-column: 1 / -1; }
 	.tt-balr > :nth-child(4), .tt-balh { display: none; }
 }
-/* 1.6: four profile modes (Manual, Fallback, Auto, Balance) on one row on phones */
 @media (max-width: 760px) {
 	.tt-sechead .tt-seg.tt-pol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: 1 1 0; min-width: 0; }
 	.tt-sechead .tt-seg.tt-pol .cbi-button { padding: 0 .15em !important; font-size: 12.5px !important; }
@@ -466,7 +462,6 @@ svg.tt-wm { background: transparent !important; }
 @media (max-width: 360px) {
 	.tt-sechead .tt-seg.tt-pol .cbi-button { font-size: 11.5px !important; }
 }
-/* 1.6: the banner is the page header on every tab */
 .tt-banner .tt-bt h2.tt-name { margin: 0 !important; padding: 0 !important; border: 0 !important; background: none !important; line-height: 0; font-size: inherit; }
 .tt-banner .tt-bv { position: absolute; right: 28px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 4px; text-align: right; }
 .tt-banner .tt-ver { font-size: 12px; color: #fde7ef; background: rgba(0, 0, 0, .35); padding: 1px 8px; }
@@ -483,8 +478,6 @@ svg.tt-wm { background: transparent !important; }
 	.tt-banner .tt-ver { font-size: 11px; padding: 1px 6px; }
 }
 
-/* 1.7.0: one look on every tab. Rows with the title on the left, thin lines, no boxes of our own;
-   text, links, buttons and the card come from the LuCI theme, so it works with any theme. */
 .tt-d { --tt-ln: rgba(127, 127, 127, .28); --tt-soft: rgba(127, 127, 127, .09); --tt-acc: #e5483a; }
 .tt-d > .tt-head { margin: 0 0 .4em; padding-bottom: 1.1em; }
 .tt-row { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: .8em 2.4em; padding: 1.5em 0; border-top: 1px solid var(--tt-ln); align-items: start; }
@@ -498,7 +491,6 @@ svg.tt-wm { background: transparent !important; }
 .tt-rl .tt-actions { margin: .2em 0 0; }
 .tt-rl .tt-ptools { margin: 0; }
 
-/* Status */
 .tt-bigw { display: flex; flex-direction: column; gap: .45em; margin-bottom: 1.1em; }
 .tt-bigl { display: flex; align-items: baseline; gap: .6em; flex-wrap: wrap; }
 .tt-bign { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; font-size: 34px; line-height: 1; letter-spacing: -0.02em; }
@@ -509,7 +501,6 @@ svg.tt-wm { background: transparent !important; }
 .tt-d .tt-stat:first-child { border-left: 0; padding-left: 0; }
 .tt-d .tt-sv { font-size: 19px; }
 
-/* Charts */
 .tt-d .tt-chart { border: 0; background: none; padding: 0; margin: .4em 0 0; }
 .tt-d .tt-chartbox, .tt-d .tt-chartbox svg { height: 200px; }
 .tt-legend { display: flex; gap: .6em 1em; flex-wrap: wrap; font-size: 12px; opacity: .8; }
@@ -518,7 +509,6 @@ svg.tt-wm { background: transparent !important; }
 .tt-lgd { background: #2b8fd6; }
 .tt-lgu { background: #d08a00; }
 
-/* Accounts on the Dashboard: one row per account */
 .tt-d .tt-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 0; margin: 0; border-top: 1px solid var(--tt-ln); }
 .tt-d .tt-tile { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.2fr); align-items: center; gap: .3em 1em;
 	border: 0; border-bottom: 1px solid var(--tt-ln); border-radius: 0; background: none; padding: .85em .8em; }
@@ -533,11 +523,9 @@ svg.tt-wm { background: transparent !important; }
 .tt-d .tt-mcard { border-color: var(--tt-ln); }
 .tt-d .tt-mcard.on { border: 1px solid var(--tt-ln); background: var(--tt-soft); box-shadow: inset 3px 0 0 var(--tt-acc); }
 
-/* Connection */
 .tt-d .tt-det { border: 1px solid var(--tt-ln); background: none; max-width: 640px; padding: 0 1em; font-size: 13.5px; }
 .tt-d .tt-drow { border-color: var(--tt-ln); padding: .6em 0; }
 
-/* Log, usage, account list */
 .tt-d .tt-logbox { border-color: var(--tt-ln); background: var(--tt-soft); }
 .tt-d .tt-ubox { border-color: var(--tt-ln); background: none; }
 .tt-d .tt-plist { border: 0; border-top: 1px solid var(--tt-ln); }
@@ -545,7 +533,6 @@ svg.tt-wm { background: transparent !important; }
 .tt-d .tt-pi.sel { box-shadow: inset 3px 0 0 var(--tt-acc); background: var(--tt-soft); }
 .tt-d .tt-rr > .cbi-value:first-child { padding-top: 0; }
 
-/* Settings: section list on the left, its page on the right */
 .tt-setrow .tt-subnav { width: 100%; border: 0; border-top: 1px solid var(--tt-ln); }
 .tt-setrow .tt-subtab { border-bottom-color: var(--tt-ln); padding-left: .8em; }
 .tt-setrow .tt-subtab:hover { background: var(--tt-soft); }
@@ -578,10 +565,8 @@ svg.tt-wm { background: transparent !important; }
 .tt-setrow .tt-subtab { align-items: flex-start !important; text-align: start !important; justify-content: flex-start !important; }
 .tt-d .cbi-page-actions, .tt-d .tt-pgact { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; margin: .4em 0 0 !important; }
 .tt-logbox { scrollbar-width: thin; scrollbar-color: rgba(127, 127, 127, .5) transparent; }
-/* 1.7.0: choice buttons (mode, protocol, transport, range…) are normal theme buttons with the theme's rounding, a little space between */
 .tt-wrap .tt-seg { gap: .4em; }
 .tt-wrap .tt-kind, .tt-wrap .tt-bopt { border-radius: 6px; }
-/* 1.7.0 phone: an odd number of buttons leaves a hole in the 2-column grid, so the first (main) button takes the whole row */
 @media (max-width: 760px) {
 	.tt-wrap .tt-actions > :first-child:nth-last-child(2n+1), .tt-wrap .tt-pgact > :first-child:nth-last-child(2n+1) { grid-column: 1 / -1; }
 }
@@ -589,7 +574,6 @@ svg.tt-wm { background: transparent !important; }
 	.tt-wrap .tt-seg:not(.tt-pol) { display: flex; flex-wrap: wrap; }
 	.tt-wrap .tt-seg:not(.tt-pol) .cbi-button { flex: 1 1 28%; }
 }
-/* 1.7.0: mode buttons + latency test as one toolbar above the account list (the left column is too narrow for wide theme buttons) */
 .tt-acctbar { display: flex; align-items: center; justify-content: space-between; gap: .5em; flex-wrap: wrap; margin: 0 0 .9em; }
 .tt-acctbar .tt-seg { display: inline-flex; flex-wrap: wrap; gap: .4em; }
 .tt-acctbar .tt-ic { display: inline-flex !important; align-items: center; justify-content: center; padding-left: .6em !important; padding-right: .6em !important; margin: 0 !important; }
@@ -599,22 +583,17 @@ svg.tt-wm { background: transparent !important; }
 	.tt-acctbar .tt-seg.tt-pol .cbi-button { min-width: 0; padding-left: .2em !important; padding-right: .2em !important; overflow: hidden; text-overflow: ellipsis; }
 	.tt-acctbar .tt-ic { flex: 0 0 auto; align-self: stretch; }
 }
-/* 1.7.0: Change… / Remove under "Your own image" share the card width */
 .tt-bown { display: grid; grid-template-columns: 1fr 1fr; gap: .4em; width: 100%; }
 .tt-bown .cbi-button { width: 100%; min-width: 0; margin: 0 !important; text-align: center; justify-content: center; }
-/* 1.7.0: "Not set up yet" dashboard in the same look */
 .tt-d .tt-steps { margin: 0 0 1em; border: 0; border-top: 1px solid var(--tt-ln); }
 .tt-d .tt-step { border-bottom-color: var(--tt-ln); padding: .85em .8em; }
 .tt-d .tt-step.on { background: var(--tt-soft); box-shadow: inset 3px 0 0 var(--tt-acc); }
 .tt-d .tt-step.on .tt-stepn { background: var(--tt-acc); border-color: var(--tt-acc); color: #fff; }
 .tt-d .tt-balhid { margin: -.6em 0 1em; display: block; }
-/* 1.7.0: Balance has its own row (Balance mode only) */
 .tt-d .tt-bal { margin: 0; }
 .tt-d .tt-balhid { margin: .8em 0 0; }
-/* 1.7.0: connection facts as one line under the Status numbers */
 .tt-detline { display: flex; flex-wrap: wrap; gap: .3em 1.6em; padding: .75em 0 0; font-size: 13px; }
 .tt-detline .tt-dp { min-width: 0; overflow-wrap: anywhere; }
-/* 1.7.0: Connections tab */
 .tt-csum { display: flex; flex-direction: column; gap: .2em; font-size: 13px; }
 .tt-rl input[type="search"] { width: 100%; box-sizing: border-box; }
 .tt-clist { border-top: 1px solid var(--tt-ln); font-size: 13px; }
@@ -623,7 +602,6 @@ svg.tt-wm { background: transparent !important; }
 .tt-chead { font-size: 12px; font-weight: 600; opacity: .7; }
 .tt-cproto { font-size: 10.5px; padding: 0 .35em; border: 1px solid var(--tt-ln); opacity: .8; font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
 .tt-cnote { margin: 0 0 .6em; }
-/* 1.7.1: per-account summary as chips that filter the list */
 .tt-csum { flex-direction: row; flex-wrap: wrap; gap: .4em; margin-top: .2em; }
 .tt-cchip { display: inline-flex; align-items: center; gap: .5em; font: inherit; font-size: 12.5px; color: inherit; cursor: pointer; padding: .3em .7em; border: 1px solid var(--tt-ln); background: transparent; border-radius: var(--tt-crad, 0); line-height: 1.4; }
 .tt-cchip strong { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; font-size: 12px; opacity: .85; }
@@ -631,7 +609,6 @@ svg.tt-wm { background: transparent !important; }
 .tt-cchip.on { border-color: var(--tt-acc); background: var(--tt-soft); }
 .tt-cchip:focus-visible { outline: 2px solid var(--tt-acc); outline-offset: 1px; }
 .tt-cspd .tt-dl, .tt-cspd .tt-ul { white-space: nowrap; }
-/* 1.7.1: phones and narrow windows: one card per connection */
 @media (max-width: 860px) {
 	.tt-chead { display: none; }
 	.tt-clist { border-top: 0; }
@@ -648,7 +625,6 @@ svg.tt-wm { background: transparent !important; }
 	.tt-crow .tt-cage { grid-area: age; justify-self: end; }
 	.tt-crow .tt-cacc::before { content: "via "; opacity: .8; }
 }
-/* 1.7.0: Dashboard accounts in two columns; each one a compact block (name + ping, protocol, server, state) */
 .tt-d .tt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; column-gap: 1.2em; border-top: 0; }
 .tt-d .tt-tile { display: flex; flex-direction: column; align-items: stretch; gap: .2em; border-top: 1px solid var(--tt-ln); border-bottom: 0; padding: .8em .9em; }
 .tt-d .tt-tile > .tt-tf { justify-content: space-between; text-align: start; margin-top: .15em; }
@@ -659,7 +635,6 @@ svg.tt-wm { background: transparent !important; }
 	.tt-d .tt-grid > .tt-tile:nth-last-child(2) { border-bottom: 0; }
 }
 .tt-d .tt-tile.cur, .tt-d .tt-tile.bal, .tt-d .tt-tile.sw, .tt-d .tt-tile:hover { border-top-color: var(--tt-ln) !important; }
-/* three columns on wide screens, two on medium, one on phones */
 .tt-d .tt-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
 .tt-d .tt-grid > .tt-tile:nth-last-child(-n+3) { border-bottom: 1px solid var(--tt-ln); }
 @media (max-width: 1280px) {
@@ -670,7 +645,6 @@ svg.tt-wm { background: transparent !important; }
 	.tt-d .tt-grid { grid-template-columns: minmax(0, 1fr) !important; }
 	.tt-d .tt-grid > .tt-tile:nth-last-child(2), .tt-d .tt-grid > .tt-tile:nth-last-child(3) { border-bottom: 0; }
 }
-/* 1.7.0: three columns on wide screens, two on medium, one on phones */
 .tt-d .tt-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
 .tt-d .tt-grid > .tt-tile:nth-last-child(-n+3) { border-bottom: 1px solid var(--tt-ln); }
 @media (max-width: 1280px) {
@@ -681,7 +655,6 @@ svg.tt-wm { background: transparent !important; }
 	.tt-d .tt-grid { grid-template-columns: minmax(0, 1fr) !important; }
 	.tt-d .tt-grid > .tt-tile:nth-last-child(2), .tt-d .tt-grid > .tt-tile:nth-last-child(3) { border-bottom: 0; }
 }
-/* 1.7.0: one colour per account type; text keeps the theme colour so it reads on light and dark */
 .tt-kt { --kc: #888; display: inline-flex; align-items: center; gap: .35em; font-size: 11px; font-weight: 600; line-height: 1.55; padding: 0 .45em; border: 1px solid var(--kc); background: color-mix(in srgb, var(--kc) 16%, transparent); letter-spacing: .02em; vertical-align: 1px; white-space: nowrap; }
 .tt-kt::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--kc); }
 .tt-kt-ssh { --kc: #14b8a6; }
@@ -690,11 +663,9 @@ svg.tt-wm { background: transparent !important; }
 .tt-kt-vless { --kc: #3b82f6; }
 .tt-kt-vmess { --kc: #6366f1; }
 .tt-kt-trojan { --kc: #ec4899; }
-/* 1.7.0: the left line of a card or list row is the account type colour; state is told by its text only */
 .tt-d .tt-tile, .tt-d .tt-tile.cur, .tt-d .tt-tile.bal, .tt-d .tt-tile.sw,
 .tt-d .tt-pi, .tt-d .tt-pi.sel { box-shadow: inset 3px 0 0 var(--kc, rgba(127, 127, 127, .4)) !important; }
 .tt-d .tt-pi { padding-left: .9em; }
-/* 1.7.0: Settings › Schedule */
 .tt-schr { display: grid; grid-template-columns: 7.5em minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) 3em auto; gap: .5em .8em; align-items: center; padding: .5em 0; border-bottom: 1px solid rgba(127, 127, 127, .25); }
 .tt-schr > * { min-width: 0; margin: 0 !important; }
 .tt-schr select, .tt-schr input { width: 100% !important; box-sizing: border-box; }
@@ -704,7 +675,6 @@ svg.tt-wm { background: transparent !important; }
 	.tt-schr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: .8em 0; }
 	.tt-schr > .cbi-checkbox { justify-self: start; }
 }
-/* schedule rows: the tick box keeps its own theme size, the time field has room for its clock icon */
 .tt-schr { grid-template-columns: 9.5em minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) 3em auto; }
 .tt-schr input[type="checkbox"] { width: auto !important; }
 .tt-schr > .cbi-checkbox { width: auto; justify-self: center; display: inline-flex; align-items: center; }
@@ -714,32 +684,26 @@ svg.tt-wm { background: transparent !important; }
 }
 .tt-schr { grid-template-columns: 9.5em minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) 5.5em auto; }
 @media (max-width: 760px) { .tt-schr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
-/* 1.7.1: schedule tunnel window: Off/On only + until time in one cell */
 .tt-schwin { display: flex; align-items: center; gap: .5em; flex-wrap: wrap; min-width: 0; }
 .tt-schwin select { flex: 0 1 auto; width: auto; }
 .tt-schwin input[type=time] { flex: 0 1 7.5em; width: 7.5em; }
 
-/* Schedule "Tunnel on/off": Off/On + until + time on ONE line (the row-wide width:100% rule pushed "until" down) */
 .tt-schr .tt-schwin { flex-wrap: nowrap; }
 .tt-schr .tt-schwin select { flex: 1 1 auto; width: auto !important; min-width: 4.5em; }
 .tt-schr .tt-schwin > span { flex: 0 0 auto; white-space: nowrap; }
 .tt-schr .tt-schwin input[type=time] { flex: 0 0 9.5em; width: 9.5em !important; }
 @media (max-width: 760px) { .tt-schr .tt-schwin { grid-column: 1 / -1; } }
 
-/* 1.7.2: Settings list text wraps inside its column (themes give buttons nowrap), and on wide
-   screens a select is as wide as its longest choice instead of cutting it off. */
 @media (min-width: 761px) {
 	.tt-setrow .tt-subtab { width: 100%; box-sizing: border-box; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 	.tt-setrow .tt-subtab > strong, .tt-setrow .tt-subtab > .tt-ss { white-space: normal; }
 	.tt-wrap .tt-setbody .cbi-value-field > select { width: auto !important; min-width: 16em; max-width: 100% !important; }
 }
-/* phone: every Settings section visible at once, wrapping like the main tabs */
 @media (max-width: 760px) {
 	.tt-setrow .tt-subnav { flex-wrap: wrap; overflow: visible; gap: .35em; padding: .2em 0; }
 	.tt-setrow .tt-subtab { flex: 0 0 auto; width: auto; white-space: nowrap; border: 1px solid var(--tt-ln) !important; border-radius: 6px; padding: .45em .8em; }
 	.tt-setrow .tt-subtab.on { box-shadow: none; background: var(--tt-soft); border-color: var(--tt-acc) !important; color: var(--tt-acc); }
 }
-/* 1.7.2: Usage lists with many devices (random MACs): top 8 + "Show all" in a scroll box */
 .tt-uscroll { max-height: 26em; overflow-y: auto; overscroll-behavior: contain; padding-right: .4em; }
 .tt-umore { display: flex; align-items: center; justify-content: space-between; gap: .8em; padding-top: .5em; flex-wrap: wrap; }
 .tt-umore .btn { margin: 0 !important; }

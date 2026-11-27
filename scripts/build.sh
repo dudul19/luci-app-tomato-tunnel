@@ -3,7 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION=$(cat VERSION)
-REL=1
+BASEVER=${VERSION%%-*}
+APKVER=$BASEVER IPKVER=$BASEVER
+[ "$VERSION" != "$BASEVER" ] && APKVER="${BASEVER}_pre" IPKVER="${BASEVER}~dev"
+REL=2
 PKG=luci-app-tomato-tunnel
 ARCHS="${ARCHS:-aarch64_generic aarch64_cortex-a53 aarch64_cortex-a72 arm_cortex-a7 arm_cortex-a7_neon-vfpv4 arm_cortex-a9 arm_cortex-a9_vfpv3-d16 arm_cortex-a15_neon-vfpv4 mipsel_24kc mips_24kc x86_64}"
 DEPENDS="libc kmod-tun ip-full ca-bundle luci-base"
@@ -24,7 +27,7 @@ DESC="Tomato Tunnel: SSH tunnel (Direct, Payload, SSL/SNI, WebSocket, WebSocket-
 XPKG=tomato-tunnel-xray
 XTAG=v26.11.9
 XVER=${XTAG#v}
-XREL=2 # 1.7.2: ttxray -ctl (shared Xray for Balance)
+XREL=2
 XSRC=third_party/xray-src
 XDESC="Xray core $XVER for Tomato Tunnel (VLESS, VMess, Trojan; TCP, WebSocket, HTTPUpgrade, gRPC, XHTTP; TLS, REALITY). Client-only build with allowInsecure kept. Optional add-on for luci-app-tomato-tunnel."
 WITH_XRAY=${WITH_XRAY:-1}
@@ -134,7 +137,7 @@ for ARCH in $ARCHS; do
 	mkdir -p "$I/control"
 	cat > "$I/control/control" <<EOF
 Package: $PKG
-Version: $VERSION-r$REL
+Version: $IPKVER-r$REL
 Depends: $(echo $DEPENDS | sed 's/ /, /g')
 Source: $URL
 SourceName: $PKG
@@ -157,7 +160,7 @@ EOF
 
 	if [ -n "$APK" ] && [ -x "$APK" ]; then
 		unshare -r -- "$APK" mkpkg \
-			--info "name:$PKG" --info "version:$VERSION-r$REL" --info "arch:$ARCH" \
+			--info "name:$PKG" --info "version:$APKVER-r$REL" --info "arch:$ARCH" \
 			--info "description:$DESC" --info "license:GPL-3.0-only" --info "url:$URL" \
 			--info "maintainer:@dudulrealnofek" --info "origin:$PKG" \
 			--info "depends:$DEPENDS" \

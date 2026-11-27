@@ -66,7 +66,7 @@ func (d *Dialer) probeTCP(ctx context.Context, host string, port, tries int) (in
 }
 
 func (d *Dialer) probeDNS(ctx context.Context, tries int) (int64, string, error) {
-	r := strings.TrimSpace(d.P.DNSResolv)
+	r := d.effectiveResolver()
 	switch {
 	case strings.HasPrefix(r, "doh:") || strings.HasPrefix(r, "https://"):
 		u, err := url.Parse(strings.TrimPrefix(r, "doh:"))

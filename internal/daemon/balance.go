@@ -15,42 +15,35 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/tunnel"
 )
 
-// Balance mode: the main profile runs as usual (supervise), and every other
-// ticked profile runs next to it as an extra pool. New connections from the
-// LAN go to the pool with the fewest open connections, so the many
-// connections of one download or speed test spread over every modem. With
-// BalanceSticky one destination stays on one pool for a while instead, for
-// banks and games that dislike a changing IP (no speed is added up then).
-
 const (
 	stickyFor     = 10 * time.Minute
-	mainEvery     = 30 * time.Second // how often Balance looks for a faster main account
-	mainMinPeriod = 10 * time.Minute // and the least time between two changes
-	mainWins      = 3                // checks in a row another account must be faster
-	pauseAfter    = 2                // failed checks in a row before an account takes no new connections
+	mainEvery     = 30 * time.Second
+	mainMinPeriod = 10 * time.Minute
+	mainWins      = 3
+	pauseAfter    = 2
 )
 
 type balancer struct {
 	mu       sync.Mutex
-	pools    map[string]*tunnel.Pool // extra pools by profile key
-	next     map[string]time.Time    // earliest reconnect per profile key
+	pools    map[string]*tunnel.Pool
+	next     map[string]time.Time
 	fails    map[string]int
 	busy     map[string]bool
 	sticky   map[string]stick
 	base     map[*tunnel.Pool][2]int64
-	bad      map[string]int           // failed checks in a row per extra pool
-	ping     map[string]int64         // last check in ms
-	weights  map[string]int           // Balance weight per profile key
-	miss     map[string]int           // ticks in a row a running pool was not wanted
-	tcp      map[*tunnel.Pool]int64   // connections handed out and still open
-	udp      map[*tunnel.Pool]int64   // UDP flows handed out and still open
-	peak     map[*tunnel.Pool]float64 // decaying peak download rate, bytes/s
-	rrT, rrU map[*tunnel.Pool]float64 // weighted round-robin turns, TCP and UDP
-	ifDown   map[string]bool          // profile keys whose Go out through interface is down
+	bad      map[string]int
+	ping     map[string]int64
+	weights  map[string]int
+	miss     map[string]int
+	tcp      map[*tunnel.Pool]int64
+	udp      map[*tunnel.Pool]int64
+	peak     map[*tunnel.Pool]float64
+	rrT, rrU map[*tunnel.Pool]float64
+	ifDown   map[string]bool
 	rr       int
-	lastMain time.Time // last automatic change of the main account
-	winKey   string    // account that was faster than the main one at the last look
-	winRuns  int       // looks in a row it was faster
+	lastMain time.Time
+	winKey   string
+	winRuns  int
 }
 
 type stick struct {
@@ -58,8 +51,6 @@ type stick struct {
 	exp time.Time
 }
 
-// weight of a pool: its Balance weight, 1 to 5, as last read from the
-// config, so a change works without a reconnect. Call with b.mu held.
 func (b *balancer) weight(p *tunnel.Pool) int64 {
 	w, ok := b.weights[ProfileKey(p.P)]
 	if !ok {
@@ -71,20 +62,8 @@ func (b *balancer) weight(p *tunnel.Pool) int64 {
 	return 1
 }
 
-// share is the Balance weight. The speed a pool carries is not used: it shows
-// how many flows it was given and how it fares against the others on the same
-// modem, not what it could do alone, so scaling by it fed on itself (the pool
-// that got the first bytes got ever more flows). OpenClash's load-balance does
-// not weigh by speed either. Call with b.mu held.
 func (b *balancer) share(p *tunnel.Pool) float64 { return float64(b.weight(p)) }
 
-// pick returns the index of the next pool by smooth weighted round-robin
-// (the way nginx shares by weight): with weights 3 and 1 the order is
-// A A B A, and so on. Open connections are not counted: idle ones (push,
-// chat, music apps) carry nothing, and counting them sent every new
-// download to the account with the fewest idle ones, a slow phone modem
-// that had just reconnected say. rr keeps the turn state (one map for
-// TCP, one for UDP). Call with b.mu held.
 func (b *balancer) pick(cs []*tunnel.Pool, rr map[*tunnel.Pool]float64) int {
 	best, total := -1, 0.0
 	for i, p := range cs {
@@ -99,18 +78,11 @@ func (b *balancer) pick(cs []*tunnel.Pool, rr map[*tunnel.Pool]float64) int {
 	return best
 }
 
-// keepTogether lists sites whose connections must leave through one account
-// even with BalanceSticky off. YouTube signs every video link for the IP that
-// asked for the page (ip= in the googlevideo URL): a video part fetched through
-// another account, so another server IP, gets HTTP 403 and the player shows
-// "Something went wrong".
 var keepTogether = map[string][]string{
 	"youtube": {"youtube.com", "youtu.be", "youtube-nocookie.com", "googlevideo.com", "ytimg.com", "ggpht.com",
 		"youtubei.googleapis.com", "youtube.googleapis.com", "yt3.googleusercontent.com"},
 }
 
-// siteGroup returns the keepTogether group of host (an IP or a name), or "".
-// For an IP the name comes from the tunnel DNS answers.
 func (d *Daemon) siteGroup(host string) string {
 	name := strings.ToLower(host)
 	if ip := net.ParseIP(host); ip != nil {
@@ -127,8 +99,6 @@ func (d *Daemon) siteGroup(host string) string {
 	return ""
 }
 
-// stuck returns the index in cs of the account key is stuck to, or -1.
-// Call with b.mu held.
 func (b *balancer) stuck(cs []*tunnel.Pool, key string, now time.Time) int {
 	st, ok := b.sticky[key]
 	if !ok || !now.Before(st.exp) {
@@ -142,8 +112,6 @@ func (b *balancer) stuck(cs []*tunnel.Pool, key string, now time.Time) int {
 	return -1
 }
 
-// balConn gives a connection back to the balancer when it closes. It keeps
-// the zero-copy path of the proxy (Raw / Counted) working.
 type balConn struct {
 	net.Conn
 	pool *tunnel.Pool
@@ -181,13 +149,11 @@ func (r *balRelay) Close() {
 	r.UDPRelay.Close()
 }
 
-// poolUp lets the UDPGW client talk to one pool.
 type poolUp struct{ p *tunnel.Pool }
 
 func (u poolUp) Dial(addr string) (net.Conn, error) { return u.p.Dial(addr) }
 func (u poolUp) UDPGWPort() int                     { return u.p.P.UDPGW }
 
-// BalanceStatus is one account in Balance mode.
 type BalanceStatus struct {
 	Key     string `json:"key"`
 	Name    string `json:"name"`
@@ -212,9 +178,6 @@ func newBalancer() *balancer {
 		rrT: map[*tunnel.Pool]float64{}, rrU: map[*tunnel.Pool]float64{}, ifDown: map[string]bool{}}
 }
 
-// ifaceDev turns an OpenWrt interface (wwan) into its device (wwan0). If the
-// interface is down the name is kept, so the bind fails instead of quietly
-// leaving through another modem.
 func ifaceDev(wan string) string {
 	if wan == "" {
 		return ""
@@ -227,7 +190,6 @@ func ifaceDev(wan string) string {
 
 func (d *Daemon) balancing() bool { return d.policy() == "balance" }
 
-// balanceSet is every profile that takes part, the main one excluded.
 func (d *Daemon) balanceSet(c *config.Config) []config.Profile {
 	mainKey := ""
 	if p := d.pool.Load(); p != nil {
@@ -297,7 +259,7 @@ func (d *Daemon) balanceLoop(ctx context.Context) {
 			if ok {
 				b.miss[k] = 0
 			} else if b.miss[k]++; b.miss[k] < 2 {
-				continue // must be missing twice in a row before it leaves
+				continue
 			}
 			if !ok || !p.Alive() {
 				if ok {
@@ -324,13 +286,6 @@ func (d *Daemon) balanceLoop(ctx context.Context) {
 	}
 }
 
-// balanceIfaces closes a Balance account at once when the interface it goes
-// out through (Go out through) is down, instead of waiting for 3 failed
-// checks (about 30 s). Its open connections end with it, so the devices open
-// new ones, which go to the accounts that still work. While the interface
-// stays down the account is not reconnected. A main account on a dead
-// interface is marked failing, so new connections skip it and Balance picks
-// another main account right away.
 func (d *Daemon) balanceIfaces() {
 	b := d.bal
 	b.mu.Lock()
@@ -410,7 +365,7 @@ func (d *Daemon) balanceConnect(ctx context.Context, p config.Profile) {
 		b.next[k] = time.Now().Add(backoff(b.fails[k]))
 		b.mu.Unlock()
 		d.log.Errorf("balance", "%s: %v", p.Name, err)
-		d.balErr(k, p, err.Error()) // takes d.mu: never while holding b.mu
+		d.balErr(k, p, err.Error())
 		return
 	}
 	b.mu.Lock()
@@ -421,9 +376,7 @@ func (d *Daemon) balanceConnect(ctx context.Context, p config.Profile) {
 		return
 	}
 	if _, dup := b.pools[k]; dup {
-		// the old main account came back into Balance (balGive) while this
-		// one was connecting: keep that one and close the new session, else
-		// it would be dropped from the map with its Xray still running
+
 		np.Close()
 		return
 	}
@@ -465,8 +418,6 @@ func (d *Daemon) balanceStop() {
 	d.set(func(s *Status) { s.Balance = nil })
 }
 
-// balTake removes the running Balance session of a profile so it can become
-// the main one without a new connection.
 func (d *Daemon) balTake(key string) *tunnel.Pool {
 	b := d.bal
 	b.mu.Lock()
@@ -481,7 +432,6 @@ func (d *Daemon) balTake(key string) *tunnel.Pool {
 	return p
 }
 
-// balGive keeps the old main session running as a Balance account.
 func (d *Daemon) balGive(p *tunnel.Pool) bool {
 	if !d.balancing() || p == nil || !p.Alive() || !p.P.Balance || !p.P.Dashboard {
 		return false
@@ -499,11 +449,6 @@ func (d *Daemon) balGive(p *tunnel.Pool) bool {
 	return true
 }
 
-// balanceMain picks the main account by ping: when the link is quiet, the
-// lowest ping if 150 ms better than the main one. A main account that fails
-// its checks is replaced right away by the healthy one with the best ping.
-// Traffic rates are not compared (see share), and pings taken while the link
-// is busy are not trusted, so nothing changes in the middle of a download.
 func (d *Daemon) balanceMain() {
 	main := d.pool.Load()
 	if main == nil {
@@ -542,7 +487,7 @@ func (d *Daemon) balanceMain() {
 		}
 	}
 	if best == "" && bad {
-		for k, p := range b.pools { // no ping yet: any healthy one beats a failing main
+		for k, p := range b.pools {
 			if p.Alive() && b.bad[k] == 0 {
 				best = k
 				break
@@ -560,9 +505,7 @@ func (d *Daemon) balanceMain() {
 	case bad:
 		why = fmt.Sprintf("Balance: %s fails its checks, %s takes over as main. ", main.P.Name, name(best))
 	case bestPing > 0 && (mainPing <= 0 || bestPing+150 < mainPing):
-		// one fast ping against one slow one is often a spike: the other account
-		// must win mainWins looks in a row (about 90 s) before the main changes,
-		// else Balance flips back and forth and every flip moves connections
+
 		if b.winKey == best {
 			b.winRuns++
 		} else {
@@ -588,8 +531,6 @@ func (d *Daemon) balanceMain() {
 	}
 }
 
-// balanceCheck pings through every extra pool, like the monitor does for
-// the main one, and drops a pool that fails CheckFail times in a row.
 func (d *Daemon) balanceCheck() {
 	b := d.bal
 	b.mu.Lock()
@@ -601,7 +542,7 @@ func (d *Daemon) balanceCheck() {
 	url, limit := d.cfg.Main.CheckURL, d.cfg.Main.CheckFail
 	for k, p := range ps {
 		go func(k string, p *tunnel.Pool) {
-			ms, err := check(p, url, d.cfg.Main.UnifiedDelay)
+			ms, err := check(context.Background(), p, url, d.cfg.Main.UnifiedDelay)
 			b.mu.Lock()
 			defer b.mu.Unlock()
 			if err == nil {
@@ -625,8 +566,6 @@ func (d *Daemon) balanceCheck() {
 	}
 }
 
-// candidates lists the pools that may take new flows: alive and not
-// paused, or, when every one is paused, the paused ones. Call with b.mu held.
 func (d *Daemon) candidates(main *tunnel.Pool) []*tunnel.Pool {
 	b := d.bal
 	var cs, paused []*tunnel.Pool
@@ -657,15 +596,13 @@ func (d *Daemon) candidates(main *tunnel.Pool) []*tunnel.Pool {
 	return cs
 }
 
-// balanceDial picks a pool for addr. ok is false when Balance has nothing
-// extra to offer and the caller should use the main pool.
 func (d *Daemon) balanceDial(main *tunnel.Pool, addr string) (net.Conn, bool, error) {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		host = addr
 	}
 	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return nil, false, nil // the server's own UDPGW: only the main pool knows it
+		return nil, false, nil
 	}
 	b := d.bal
 	b.mu.Lock()
@@ -699,7 +636,7 @@ func (d *Daemon) balanceDial(main *tunnel.Pool, addr string) (net.Conn, bool, er
 		}
 	}
 	order := append([]*tunnel.Pool{cs[first]}, append(append([]*tunnel.Pool{}, cs[:first]...), cs[first+1:]...)...)
-	b.tcp[order[0]]++ // counted before the dial, so parallel dials spread out
+	b.tcp[order[0]]++
 	b.mu.Unlock()
 	var last error
 	for i, p := range order {
@@ -731,8 +668,6 @@ func udpCapable(p *tunnel.Pool) bool {
 	return p.IsXray() || p.IsZivpn() || p.P.UDPGW > 0
 }
 
-// balanceUDP opens a UDP flow on the pool with the fewest flows per share.
-// ok is false when Balance has nothing to offer.
 func (d *Daemon) balanceUDP(main *tunnel.Pool, dst *net.UDPAddr, onPacket func(src *net.UDPAddr, data []byte)) (proxy.UDPRelay, bool) {
 	b := d.bal
 	b.mu.Lock()
@@ -753,7 +688,7 @@ func (d *Daemon) balanceUDP(main *tunnel.Pool, dst *net.UDPAddr, onPacket func(s
 	skey, now := "", time.Now()
 	if dst != nil {
 		if g := d.siteGroup(dst.IP.String()); g != "" {
-			skey = "@" + g // QUIC to YouTube: same account as its TCP connections
+			skey = "@" + g
 		}
 	}
 	first := -1
@@ -794,8 +729,6 @@ func (d *Daemon) balanceUDP(main *tunnel.Pool, dst *net.UDPAddr, onPacket func(s
 	return nil, false
 }
 
-// balanceRates adds the extra pools to the traffic counters and fills the
-// per-account list. Called from statusLoop with d.mu held.
 func (d *Daemon) balanceRates(main *tunnel.Pool, mainRX, mainTX int64) (rx, tx int64) {
 	b := d.bal
 	b.mu.Lock()
@@ -808,7 +741,7 @@ func (d *Daemon) balanceRates(main *tunnel.Pool, mainRX, mainTX int64) (rx, tx i
 		pk, ok := b.peak[p]
 		if !ok {
 			for _, v := range b.peak {
-				pk = max(pk, v) // a new account starts as fast as the best
+				pk = max(pk, v)
 			}
 		}
 		b.peak[p] = max(float64(rate), pk*0.97)

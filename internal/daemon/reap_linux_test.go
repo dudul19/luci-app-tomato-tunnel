@@ -16,7 +16,7 @@ func TestParentPID(t *testing.T) {
 }
 
 func TestStrayXrayIgnoresOthers(t *testing.T) {
-	// nothing here runs an Xray from RunDir, so nothing may be listed
+
 	if l := strayXray(os.Getpid()); len(l) != 0 {
 		t.Fatalf("strayXray = %v", l)
 	}

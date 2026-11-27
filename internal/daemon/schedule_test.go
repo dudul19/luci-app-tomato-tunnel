@@ -12,7 +12,6 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/logx"
 )
 
-// fakeCtl replaces the ctl script with one that writes its arguments to a file.
 func fakeCtl(t *testing.T) func() string {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "calls")
@@ -57,7 +56,7 @@ func TestScheduleUntil(t *testing.T) {
 		t.Fatalf("not kept across restarts: %+v", got)
 	}
 
-	c.Main.Profile = "night" // ctl switch wrote it
+	c.Main.Profile = "night"
 	if d.scheduleBack(ctx, c, runs, at("03:00")); len(runs) != 1 || calls() != "" {
 		t.Fatal("switched back inside the window")
 	}
@@ -65,21 +64,18 @@ func TestScheduleUntil(t *testing.T) {
 		t.Fatal("did not switch back at the end")
 	}
 
-	// changed by hand inside the window: that choice stays
 	runs = map[string]schedRun{"s1": r}
 	c.Main.Profile = "main"
 	if d.scheduleBack(ctx, c, runs, at("06:01")); len(runs) != 0 || calls() != "" {
 		t.Fatal("overrode a choice made by hand")
 	}
 
-	// schedule removed meanwhile: forgotten, no switch
 	runs = map[string]schedRun{"s1": r}
 	c.Main.Profile, c.Schedules = "night", nil
 	if d.scheduleBack(ctx, c, runs, at("07:00")); len(runs) != 0 || calls() != "" {
 		t.Fatal("acted on a removed schedule")
 	}
 
-	// mode with an end, across midnight
 	eve := config.Schedule{ID: "s2", Time: "19:00", End: "01:00", Days: "daily", Action: "policy", Value: "balance", Enabled: true}
 	c.Schedules = []config.Schedule{eve}
 	r, ok = d.runSchedule(ctx, c, eve)
@@ -95,7 +91,6 @@ func TestScheduleUntil(t *testing.T) {
 		t.Fatal("mode did not switch back")
 	}
 
-	// no end: the change stays, nothing to remember
 	plain := config.Schedule{ID: "s3", Time: "08:00", Days: "daily", Action: "policy", Value: "auto", Enabled: true}
 	if plain.HasEnd() {
 		t.Fatal("schedule without end has one")

@@ -26,15 +26,19 @@ feature, setting and payload tag is explained there.
 
 ![Dashboard](docs/screenshots/dashboard-v1.7.0.png)
 
-Dashboard (v1.7.0 shown, same look in v1.7.2) on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
+Dashboard (v1.7.0 shown, same look in v1.7.3) on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
 
 ## Features
 
 - **SSH**: Direct, Payload, Enhanced (split payload), TLS/SNI, WebSocket and
   SlowDNS, in any combination. Works with old Dropbear servers.
+- **SlowDNS** with TXT, NULL, CNAME, HTTPS, SVCB, DNSKEY, A, AAAA, NS, MX or
+  SRV records (Automatic tries each), also on DNS64 networks, and the
+  operator's own DNS as resolver for networks that block public DNS.
 - **ZiVPN** (host, port, password) and **Xray** (VLESS, VMess, Trojan over
   TCP, WebSocket, HTTPUpgrade, gRPC or XHTTP, with TLS or REALITY), imported
-  from a link.
+  from a link. Xray also runs over SlowDNS, or behind your own payload
+  (Enhanced, inside or before TLS) with no change on the server.
 - **TUN** (whole LAN, TCP and UDP), TCP redirect, or a SOCKS5 port for
   OpenClash and PassWall. DNS through the tunnel.
 - **Dashboard** with live speed, traffic chart, ping and every profile.
@@ -72,8 +76,8 @@ the [Releases](https://github.com/dudul19/luci-app-tomato-tunnel/releases/latest
 copy it to `/tmp` and install it:
 
 ```sh
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.2_aarch64_generic.apk   # OpenWrt 25.x and newer
-opkg install /tmp/luci-app-tomato-tunnel_1.7.2_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.3_aarch64_generic.apk   # OpenWrt 25.x and newer
+opkg install /tmp/luci-app-tomato-tunnel_1.7.3_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
 ```
 
 Then open LuCI › Services › Tomato Tunnel. Xray accounts need the Xray add-on:
@@ -95,11 +99,19 @@ Balance mode costs more CPU because all traffic passes through
 APK=/path/to/apk scripts/build.sh
 ```
 
-Output goes to `dist/`. The `apk` tool (apk-tools 3) comes with any OpenWrt 25.x
+Output goes to `dist/`. The version comes from the `VERSION` file and the
+package release from `REL` in `scripts/build.sh`. A dev version
+(`1.7.4-dev`) becomes `1.7.4_pre` (apk) / `1.7.4~dev` (ipk), so the final
+`1.7.4` installs over it. The `apk` tool (apk-tools 3) comes with any OpenWrt 25.x
 SDK or ImageBuilder in `staging_dir/host/bin/apk`. You also need Go 1.27 or
 newer, `git`, `fakeroot` and `unshare`. The build works in `$TMPDIR`; point it
 at a disk folder (`TMPDIR=~/.cache/tt-build`) when `/tmp` is a small tmpfs.
 `ARCHS="aarch64_generic"` builds one architecture only.
+
+SlowDNS uses kcp-go v5.6.8 from `third_party/kcp-go` (through a `replace` in
+`go.mod`) with one addition: ACKs can be held for a few milliseconds and sent
+together, which A/AAAA accounts use so the carrier DNS is not flooded with
+ACK-only queries.
 
 The Xray add-on is built from Xray-core v26.11.9 (cloned into
 `third_party/xray-src/core`) with `third_party/xray-src/tomato.patch` (newer
@@ -127,13 +139,15 @@ offered on the Beta channel.
 | Path | Contents |
 |---|---|
 | `cmd/tomato-tunnel` | daemon and command line (`run`, `test`, `update`, `bot`) |
-| `internal/tunnel` | payload, TLS, SlowDNS, SSH, ZiVPN, Xray and session pool |
+| `internal/tunnel` | payload, TLS, SlowDNS, SSH, ZiVPN, Xray (with its payload injector) and session pool |
+| `internal/slowdns` | DNS transport: queries, polling and every record type (A/AAAA, DNS64) |
 | `internal/proxy` | SOCKS5 with UDP over UDPGW, transparent redirect, DNS forwarder |
 | `internal/daemon` | reconnect, ping check, live profile switch, latency test, Balance and status |
 | `internal/usage` | daily, per-account and per-device traffic statistics |
 | `internal/changeip` | Change IP methods (interface, AT, ModemManager, HiLink, ADB), IP ranges |
 | `internal/bot` | Telegram bot: menus, alerts, daily report, pairing |
 | `root/` | OpenWrt files: init script, network script, LuCI page |
+| `third_party/` | kcp-go with ACK hold, Hysteria core for ZiVPN, hev-socks5-tunnel, Xray add-on sources |
 
 ## Credits
 

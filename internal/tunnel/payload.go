@@ -23,9 +23,9 @@ type PayloadVars struct {
 	Port  int
 	Bug   string
 	UA    string
-	IP    string // resolved server IP, for [ip] and [ip_port]
-	Proxy string // remote proxy host:port, for [proxy]
-	Key   string // keeps [rotate] turns apart per account
+	IP    string
+	Proxy string
+	Key   string
 }
 
 type Segment struct {
@@ -48,7 +48,6 @@ var (
 	turns  = map[string]int{}
 )
 
-// turn returns 0, 1, 2, ... for each call with the same key.
 func turn(key string) int {
 	turnMu.Lock()
 	defer turnMu.Unlock()
@@ -60,9 +59,6 @@ func turn(key string) int {
 	return n
 }
 
-// PickValue resolves [rotate=a;b;c] (next value on every connect) and
-// [random=a;b;c] (any value) in a field such as the bug host, the remote
-// proxy or the payload.
 func PickValue(s, key string) string {
 	if !strings.Contains(s, "=") {
 		return s
@@ -85,11 +81,8 @@ func PickValue(s, key string) string {
 	})
 }
 
-// HasPick reports whether a field uses [rotate=…] or [random=…].
 func HasPick(s string) bool { return reValue.MatchString(s) }
 
-// variant picks one payload from a payload cut by [rotate] (in turn) or
-// [random] (any of them).
 func variant(p, key string) string {
 	loc := reVariant.FindAllStringSubmatchIndex(p, -1)
 	if len(loc) == 0 {
@@ -166,7 +159,7 @@ func Build(payload string, v PayloadVars, splitDelay time.Duration) []Segment {
 		} else if x, ok := val[name]; ok {
 			s = x
 		} else {
-			return m // unknown token: sent as written
+			return m
 		}
 		if n, _ := strconv.Atoi(g[2]); n > 1 {
 			s = strings.Repeat(s, n)

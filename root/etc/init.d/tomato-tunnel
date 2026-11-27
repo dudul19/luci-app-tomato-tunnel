@@ -14,7 +14,6 @@ boot() {
 	config_get_bool autostart main autostart 1
 	"$PROG" schedule-sync >/dev/null 2>&1
 	[ "$autostart" = 1 ] || return 0
-	# a tunnel window in Settings > Schedule says off right now: wait for cron
 	if [ "$("$PROG" schedule-state 2>/dev/null)" = off ]; then
 		logger -t tomato-tunnel "schedule: tunnel stays off at boot (inside an off window)"
 		return 0
@@ -47,4 +46,3 @@ reload_service() {
 	stop
 	start
 }
-

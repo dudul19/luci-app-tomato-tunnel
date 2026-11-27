@@ -75,7 +75,7 @@ func (b *Bot) account(ctx context.Context, chat, drop int64, id string) {
 	c := newCard(p.Name)
 	c.kv(b.t("Type", "Tipe"), typeLabel(p))
 	c.kv("Server", server(p))
-	if p.Port > 0 && !(p.UseDNS && p.Type == "ssh") {
+	if p.Port > 0 && !p.UseDNS {
 		c.kv("Port", strconv.Itoa(p.Port))
 	}
 	if p.Type == "ssh" && p.User != "" {

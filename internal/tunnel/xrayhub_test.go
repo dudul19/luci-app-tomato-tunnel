@@ -18,8 +18,6 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/logx"
 )
 
-// In the shared Xray the outbound dials the looked-up IP, so Host, SNI and
-// gRPC :authority must be what Xray would have taken from the server name.
 func TestXrayOutboundShared(t *testing.T) {
 	get := func(m map[string]any, keys ...string) any {
 		var v any = m
@@ -55,7 +53,7 @@ func TestXrayOutboundShared(t *testing.T) {
 		t.Errorf("ws tls: host %v sni %v", get(ss, "wsSettings", "host"), get(ss, "tlsSettings", "serverName"))
 	}
 
-	p = base // SNI set, no Host: Xray would send the SNI as Host
+	p = base
 	p.XProto, p.XNet, p.XSec, p.SNI = "trojan", "ws", "tls", "bug.example.net"
 	out, _, _ = xrayOutbound(p, "", "203.0.113.7", true)
 	ss = out["streamSettings"].(map[string]any)
@@ -63,7 +61,7 @@ func TestXrayOutboundShared(t *testing.T) {
 		t.Errorf("ws sni: host %v", get(ss, "wsSettings", "host"))
 	}
 
-	p = base // gRPC, Host set: Xray ignores it for gRPC and uses the SNI
+	p = base
 	p.XProto, p.XNet, p.XSec, p.XService, p.XHost, p.SNI = "vmess", "grpc", "tls", "g", "h.example.org", "s.example.org"
 	out, _, _ = xrayOutbound(p, "", "203.0.113.7", true)
 	if a := get(out["streamSettings"].(map[string]any), "grpcSettings", "authority"); a != "s.example.org" {
@@ -75,24 +73,20 @@ func TestXrayOutboundShared(t *testing.T) {
 		t.Errorf("grpc plain authority %v", a)
 	}
 
-	p = base // own Xray: unchanged, the name goes to DNS hosts
+	p = base
 	p.XProto, p.XNet, p.XSec = "vless", "ws", "tls"
 	out, hosts, _ = xrayOutbound(p, "", "203.0.113.7", false)
 	if addr(out) != "sg1.example.com" || hosts["sg1.example.com"] != "203.0.113.7" {
 		t.Errorf("own: address %v hosts %v", addr(out), hosts)
 	}
 
-	p = base // VLESS without TLS on a public IP keeps its own Xray
+	p = base
 	p.Host, p.XProto, p.XNet, p.XSec = "198.51.100.9", "vless", "ws", "none"
 	if _, _, err := xrayOutbound(p, "", "", true); err != errNotShared {
 		t.Errorf("alias case: %v", err)
 	}
 }
 
-// TestXrayShared runs three accounts in one shared Xray against a local Xray
-// server: all work, a wrong one fails alone, removing one leaves the others
-// working and closes its connections, and the process ends when empty.
-// TT_XRAY_E2E: folder with xray-full (a normal Xray build) and ttxray.
 func TestXrayShared(t *testing.T) {
 	dir := os.Getenv("TT_XRAY_E2E")
 	if dir == "" {
@@ -111,7 +105,7 @@ func TestXrayShared(t *testing.T) {
 				"settings":       map[string]any{"clients": []any{map[string]any{"id": e2eUUID}}, "decryption": "none"},
 				"streamSettings": map[string]any{"network": "httpupgrade", "httpupgradeSettings": map[string]any{"path": "/h"}}},
 		},
-		// Xray blocks private and loopback targets by default; the test web server is on 127.0.0.1
+
 		"outbounds": []any{map[string]any{"protocol": "freedom", "settings": map[string]any{"finalRules": []any{map[string]any{"action": "allow"}}}}},
 	}
 	b, _ := json.Marshal(srvConf)
@@ -133,7 +127,7 @@ func TestXrayShared(t *testing.T) {
 			w.WriteHeader(204)
 			return
 		}
-		if r.URL.Path == "/slow" { // a long download, to see it end when its account is removed
+		if r.URL.Path == "/slow" {
 			w.WriteHeader(200)
 			w.(http.Flusher).Flush()
 			select {
@@ -218,8 +212,6 @@ func TestXrayShared(t *testing.T) {
 	}
 	bad.Close()
 
-	// a long download through "ws", then remove "ws": the download must end,
-	// and the other two keep working in the same process
 	cl := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, a string) (net.Conn, error) { return pools[0].Dial(a) }}}
 	resp, err := cl.Get(web.URL + "/slow")
 	if err != nil {
@@ -242,7 +234,6 @@ func TestXrayShared(t *testing.T) {
 		t.Fatalf("shared Xray changed (refs %d)", shared.refs)
 	}
 
-	// udp through one of the remaining
 	echo, _ := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	defer echo.Close()
 	go func() {

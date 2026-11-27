@@ -20,9 +20,6 @@ var _ obfuscator = (*salamanderObfuscator)(nil)
 
 var ErrPSKTooShort = fmt.Errorf("PSK must be at least %d bytes", smPSKMinLen)
 
-// salamanderObfuscator is an obfuscator that obfuscates each packet with
-// the BLAKE2b-256 hash of a pre-shared key combined with a random salt.
-// Packet format: [8-byte salt][payload]
 type salamanderObfuscator struct {
 	PSK     []byte
 	RandSrc *rand.Rand
@@ -45,9 +42,6 @@ func newSalamanderObfuscator(psk []byte) (*salamanderObfuscator, error) {
 	}, nil
 }
 
-// WrapPacketConnSalamander wraps conn with Salamander obfuscation: each
-// outbound packet is XOR'd with BLAKE2b-256(PSK || random salt) and the
-// 8-byte salt is prepended on the wire.
 func WrapPacketConnSalamander(conn net.PacketConn, psk []byte) (net.PacketConn, error) {
 	ob, err := newSalamanderObfuscator(psk)
 	if err != nil {

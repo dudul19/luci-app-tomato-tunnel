@@ -7,11 +7,6 @@ import (
 	"time"
 )
 
-// Tunnel on/off schedules (Action "tunnel"): Value "off" keeps the tunnel off
-// from Time to End, Value "on" keeps it on only from Time to End. End before
-// or equal to Time crosses midnight. They are carried out by cron, so they
-// also work while the tunnel (and its own schedule loop) is stopped.
-
 func hm(s string) (int, bool) {
 	p := strings.Split(strings.TrimSpace(s), ":")
 	if len(p) != 2 {
@@ -25,7 +20,6 @@ func hm(s string) (int, bool) {
 	return h*60 + m, true
 }
 
-// IsTunnel reports whether s is a usable tunnel on/off window.
 func (s Schedule) IsTunnel() bool {
 	if !s.Enabled || s.Action != "tunnel" || (s.Value != "on" && s.Value != "off") {
 		return false
@@ -35,7 +29,6 @@ func (s Schedule) IsTunnel() bool {
 	return ok1 && ok2 && a != b
 }
 
-// HasEnd reports whether an account or mode schedule switches back at End.
 func (s Schedule) HasEnd() bool {
 	if s.Action == "tunnel" {
 		return false
@@ -45,7 +38,6 @@ func (s Schedule) HasEnd() bool {
 	return ok1 && ok2 && a != b
 }
 
-// dayMatch says whether a window may start on weekday wd.
 func (s Schedule) dayMatch(wd time.Weekday) bool {
 	switch s.Days {
 	case "", "daily":
@@ -64,8 +56,6 @@ func (s Schedule) dayMatch(wd time.Weekday) bool {
 	return false
 }
 
-// InWindow says whether t falls inside the window (started today or, for a
-// window across midnight, yesterday).
 func (s Schedule) InWindow(t time.Time) bool {
 	a, _ := hm(s.Time)
 	b, _ := hm(s.End)
@@ -73,16 +63,13 @@ func (s Schedule) InWindow(t time.Time) bool {
 	if a < b {
 		return s.dayMatch(t.Weekday()) && now >= a && now < b
 	}
-	// across midnight: from a today until b tomorrow
+
 	if s.dayMatch(t.Weekday()) && now >= a {
 		return true
 	}
 	return s.dayMatch(t.AddDate(0, 0, -1).Weekday()) && now < b
 }
 
-// TunnelWanted returns "off" or "on" when a tunnel window decides the state
-// at t, or "" when none does. An "off" window wins over an "on" one; outside
-// all "on" windows (when there are any) the tunnel is off.
 func TunnelWanted(c *Config, t time.Time) string {
 	hasOn, inOn := false, false
 	for _, s := range c.Schedules {
@@ -108,7 +95,6 @@ func TunnelWanted(c *Config, t time.Time) string {
 
 var dowNum = map[string]int{"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
 
-// cronDays is the cron day-of-week field, moved shift days later.
 func (s Schedule) cronDays(shift int) string {
 	var ds []int
 	switch s.Days {
@@ -135,11 +121,8 @@ func (s Schedule) cronDays(shift int) string {
 	return strings.Join(out, ",")
 }
 
-// CronMark ends every crontab line the schedule writes, so it can replace them.
 const CronMark = "# tomato-tunnel schedule"
 
-// TunnelCron returns the crontab lines for the tunnel windows: the action at
-// the start of the window and the opposite one at its end.
 func TunnelCron(c *Config, ctl string) []string {
 	var out []string
 	for _, s := range c.Schedules {

@@ -112,3 +112,5 @@ func (l *Logger) Clear() {
 		os.WriteFile(l.path, nil, 0600)
 	}
 }
+
+var OnOpen func(*Logger)

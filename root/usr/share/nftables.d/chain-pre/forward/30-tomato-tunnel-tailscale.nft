@@ -1,3 +1,2 @@
-# Tomato Tunnel: LAN devices may reach 100.x and Tailscale subnets.
 iifname "br-lan" oifname "tailscale0" accept comment "tomato-tunnel: LAN to Tailscale"
 iifname "tailscale0" oifname "br-lan" ct state established,related accept comment "tomato-tunnel: Tailscale answers"

@@ -14,11 +14,6 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/tunnel"
 )
 
-// reapXrayLoop stops Xray processes that no pool owns any more: children of
-// this daemon that are not in the tunnel's list of live Xray, and leftovers of
-// an earlier daemon (parent 1) that still run on a config in RunDir. Each one
-// must be seen twice in a row (a minute apart) before it is killed, so an Xray
-// that is just starting is never touched.
 func reapXrayLoop(ctx context.Context, log *logx.Logger) {
 	seen := map[int]bool{}
 	t := time.NewTicker(time.Minute)
@@ -76,7 +71,7 @@ func parentPID(pid string) int {
 	if err != nil {
 		return -1
 	}
-	// "pid (comm) state ppid ..." where comm may hold spaces or ')'
+
 	i := bytes.LastIndexByte(b, ')')
 	if i < 0 {
 		return -1

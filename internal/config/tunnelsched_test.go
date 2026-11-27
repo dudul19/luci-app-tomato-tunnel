@@ -21,7 +21,7 @@ func TestTunnelWindows(t *testing.T) {
 	}
 	night := Schedule{ID: "b", Action: "tunnel", Value: "off", Time: "23:00", End: "02:00", Days: "fri", Enabled: true}
 	c = &Config{Schedules: []Schedule{night}}
-	// 2026-11-27 is a Friday
+
 	if TunnelWanted(c, at("2026-11-27", "23:30")) != "off" || TunnelWanted(c, at("2026-11-28", "01:30")) != "off" {
 		t.Error("window across midnight from Friday")
 	}

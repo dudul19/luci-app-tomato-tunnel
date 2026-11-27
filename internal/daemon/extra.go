@@ -123,9 +123,6 @@ func daysText(x time.Duration) string {
 	return fmt.Sprintf("%d days", n)
 }
 
-// changeIP changes the IP of one modem, of all of them, or (target "" or
-// "auto") of the one the tunnel goes out on. It reports whether that modem
-// was among them, so the caller knows the tunnel needs a reconnect.
 func (d *Daemon) changeIP(ctx context.Context, why, target string) (changeip.Result, bool) {
 	if !d.ipBusy.CompareAndSwap(false, true) {
 		return changeip.Result{Error: "already changing IP"}, false
@@ -205,7 +202,6 @@ func (d *Daemon) changeIP(ctx context.Context, why, target string) (changeip.Res
 	return r, touched
 }
 
-// ModemStatus is one modem on the Dashboard.
 type ModemStatus struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -227,7 +223,6 @@ func (d *Daemon) setModem(id string, f func(*ModemStatus)) {
 	})
 }
 
-// modemStatus refreshes the modem list with each modem's interface address.
 func (d *Daemon) modemStatus() {
 	ms := d.cfg.Main.Modems
 	tun := config.ChangeIP{}
@@ -252,9 +247,6 @@ func (d *Daemon) modemStatus() {
 	})
 }
 
-// tunnelModem picks the modem the tunnel goes out on: the one on the WAN
-// device set in Network, else the one on the default route with the lowest
-// metric, else the first.
 func tunnelModem(ms []config.ChangeIP, wan string) config.ChangeIP {
 	if len(ms) == 1 {
 		return ms[0]

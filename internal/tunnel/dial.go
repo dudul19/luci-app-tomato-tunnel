@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,6 +22,8 @@ type Dialer struct {
 	P       config.Profile
 	Iface   string
 	Log     *logx.Logger
+	Raw     bool
+	quiet   atomic.Bool
 	mu      sync.Mutex
 	dns     *SlowDNS
 	dnsType uint16
@@ -118,8 +121,19 @@ func upstreamServers() []string {
 
 type Info struct {
 	Target string
+	Sent   []byte
 	skip   *skipConn
 }
+
+func (d *Dialer) infof(cat, f string, a ...any) {
+	if d.quiet.Load() {
+		d.Log.Debugf(cat, f, a...)
+	} else {
+		d.Log.Infof(cat, f, a...)
+	}
+}
+
+func (d *Dialer) Quiet() { d.quiet.Store(true) }
 
 func (i *Info) Replies() []string {
 	if i == nil || i.skip == nil {
@@ -169,13 +183,13 @@ func (d *Dialer) Dial(ctx context.Context) (net.Conn, *Info, error) {
 			serverIP = ip
 		}
 		info.Target = net.JoinHostPort(host, strconv.Itoa(port))
-		d.Log.Infof("tcp", "Connecting to %s", info.Target)
+		d.infof("tcp", "Connecting to %s", info.Target)
 		t0 := time.Now()
 		raw, err := d.netDialer().DialContext(ctx, "tcp", net.JoinHostPort(ip, strconv.Itoa(port)))
 		if err != nil {
 			return nil, nil, fmt.Errorf("TCP %s (%s): %v", info.Target, ip, err)
 		}
-		d.Log.Infof("tcp", "Connected to %s (%s) in %d ms", host, ip, time.Since(t0).Milliseconds())
+		d.infof("tcp", "Connected to %s (%s) in %d ms", host, ip, time.Since(t0).Milliseconds())
 		if tc, ok := raw.(*net.TCPConn); ok {
 			tc.SetNoDelay(true)
 		}
@@ -183,7 +197,10 @@ func (d *Dialer) Dial(ctx context.Context) (net.Conn, *Info, error) {
 	}
 
 	if p.UseTLS {
-		sni := p.Bug
+		sni := p.TLSName
+		if sni == "" {
+			sni = p.Bug
+		}
 		if sni == "" {
 			sni = p.Host
 		}
@@ -199,7 +216,7 @@ func (d *Dialer) Dial(ctx context.Context) (net.Conn, *Info, error) {
 			}
 			return nil, nil, fmt.Errorf("TLS handshake (SNI %s): %v", sni, err)
 		}
-		d.Log.Infof("tls", "TLS handshake OK, SNI %s (%s, %d ms)", sni, tls.VersionName(tc.ConnectionState().Version), time.Since(t0).Milliseconds())
+		d.infof("tls", "TLS handshake OK, SNI %s (%s, %d ms)", sni, tls.VersionName(tc.ConnectionState().Version), time.Since(t0).Milliseconds())
 		c = tc
 	}
 
@@ -241,11 +258,15 @@ func (d *Dialer) Dial(ctx context.Context) (net.Conn, *Info, error) {
 	total := 0
 	for _, s := range segs {
 		total += len(s.Data)
+		info.Sent = append(info.Sent, s.Data...)
 	}
 	if len(segs) > 1 {
-		d.Log.Infof("payload", "Payload sent in %d parts (%d bytes)", len(segs), total)
+		d.infof("payload", "Payload sent in %d parts (%d bytes)", len(segs), total)
 	} else {
-		d.Log.Infof("payload", "Payload sent (%d bytes)", total)
+		d.infof("payload", "Payload sent (%d bytes)", total)
+	}
+	if d.Raw {
+		return c, info, nil
 	}
 
 	sk := newSkipConn(c, p.Enhanced)
@@ -260,7 +281,7 @@ func (d *Dialer) slowDNS(ctx context.Context) (*SlowDNS, error) {
 	if d.dns != nil && !d.dns.Closed() {
 		return d.dns, nil
 	}
-	s, err := NewSlowDNS(ctx, d.P.DNSDomain, d.P.DNSPubkey, d.P.DNSResolv, d.P.DNSType, d.dnsType, d.netDialer(), d.Log)
+	s, err := NewSlowDNS(ctx, d.P.DNSDomain, d.P.DNSPubkey, d.effectiveResolver(), d.P.DNSType, d.dnsType, SlowDNSTune{EDNS: d.P.DNSEdns, Window: d.P.DNSWindow}, d.netDialer(), d.Log)
 	if err != nil {
 		return nil, err
 	}

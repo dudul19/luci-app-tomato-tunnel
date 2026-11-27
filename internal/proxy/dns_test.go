@@ -12,9 +12,6 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/logx"
 )
 
-// fakeDNS answers each query with its own body after a delay that depends on
-// the first question byte, so answers come back out of order. After `limit`
-// answers on one connection it closes that connection.
 type fakeDNS struct {
 	dials atomic.Int32
 	limit int
@@ -81,7 +78,7 @@ func TestDNSKeptConnections(t *testing.T) {
 }
 
 func TestDNSRedialsAfterClose(t *testing.T) {
-	up := &fakeDNS{limit: 3} // the server hangs up after 3 answers
+	up := &fakeDNS{limit: 3}
 	d := &DNS{Server: "1.1.1.1:53", Up: up, Log: logx.New("", 10, false)}
 	for i := 0; i < 20; i++ {
 		ans := d.ask(query(uint16(i), 0))

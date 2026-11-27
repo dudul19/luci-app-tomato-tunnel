@@ -1,3 +1,1 @@
-# Tomato Tunnel: LAN traffic into Tailscale leaves with the router's 100.x
-# address, so the other device can answer it.
 iifname "br-lan" oifname "tailscale0" masquerade comment "tomato-tunnel: LAN to Tailscale"

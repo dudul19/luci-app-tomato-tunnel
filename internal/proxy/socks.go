@@ -22,10 +22,6 @@ type UDPRelay interface {
 	Close()
 }
 
-// QUICBlocker, when the upstream implements it and says yes, makes UDP to
-// port 443 (QUIC / HTTP3) go nowhere, so browsers and apps use TCP instead.
-// NativeUDPTo is NativeUDP that also gets the first destination, so the
-// upstream can send a flow outside the tunnel (Direct domains).
 type NativeUDPTo interface {
 	NativeUDPTo(dst *net.UDPAddr, onPacket func(src *net.UDPAddr, data []byte)) (UDPRelay, bool, error)
 }

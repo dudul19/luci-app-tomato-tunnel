@@ -156,3 +156,66 @@ func TestQUICMode(t *testing.T) {
 		}
 	}
 }
+
+func TestXrayOverSlowDNS(t *testing.T) {
+	ss, err := uci.Parse(strings.NewReader(`
+config profile 'p1'
+	option name 'xd'
+	option type 'xray'
+	option host 'sg1.example.com'
+	option uuid 'id'
+	option x_sec 'tls'
+	option x_net 'grpc'
+	option use_slowdns '1'
+	option dns_domain 'ns.example.com'
+	option dns_pubkey '0000000000000000000000000000000000000000000000000000000000000000'
+
+config profile 'p2'
+	option name 'ssh'
+	option type 'ssh'
+	option host 'h'
+	option user 'u'
+	option use_slowdns '0'
+	option use_payload '1'
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := FromSections(ss)
+	p, _ := c.Find("p1")
+	if !p.UseDNS || p.XSec != "none" || p.XNet != "ws" || p.UsePayload {
+		t.Fatalf("xray over slowdns: %+v", p)
+	}
+	if p.Label() != "Xray VLESS WS + SlowDNS" {
+		t.Fatalf("label %q", p.Label())
+	}
+	if err := p.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	p.DNSPubkey = "x"
+	if p.Validate() == nil {
+		t.Fatal("bad pubkey accepted")
+	}
+}
+
+func TestXrayPayloadConfig(t *testing.T) {
+	mk := func(opts map[string]string) Profile {
+		s := uci.Section{Type: "profile", Name: "p1", Options: map[string]string{"type": "xray", "host": "sg1.test", "uuid": "u", "x_net": "ws", "use_payload": "1", "enhanced": "1", "proxy": "1.2.3.4:8080"}}
+		for k, v := range opts {
+			s.Options[k] = v
+		}
+		return readProfile(&s)
+	}
+	p := mk(nil)
+	if !p.XPay || !p.Enhanced || p.Proxy != "1.2.3.4:8080" || p.XPayPos != "inside" || p.Label() != "Xray VLESS WS + Payload + Enhanced" {
+		t.Fatalf("%+v %q", p, p.Label())
+	}
+	for _, o := range []map[string]string{{"x_sec": "reality", "pbk": "k"}, {"x_net": "grpc"}, {"use_slowdns": "1"}} {
+		if p := mk(o); p.XPay || p.Enhanced || p.Proxy != "" {
+			t.Fatalf("%v: payload should be off: %+v", o, p)
+		}
+	}
+	if p := mk(map[string]string{"use_payload": "0"}); p.XPay || p.Enhanced || p.Proxy != "" {
+		t.Fatalf("off: %+v", p)
+	}
+}

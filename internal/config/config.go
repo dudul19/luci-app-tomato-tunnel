@@ -40,11 +40,11 @@ type Main struct {
 	ManageDnsmasq bool
 	Bypass        []string
 	BypassID      bool
-	BalanceSticky bool   // Balance: keep each destination on one account
-	UnifiedDelay  bool   // ping = second request on a warm connection, handshakes left out (like Clash unified-delay)
-	FallbackBack  bool   // Fallback: go back to the chosen account once it works again
-	BlockQUIC     bool   // drop UDP 443 so browsers and apps use TCP (on, or auto)
-	QUICMode      string // block_quic: "auto" (default), "on" or "off"
+	BalanceSticky bool
+	UnifiedDelay  bool
+	FallbackBack  bool
+	BlockQUIC     bool
+	QUICMode      string
 	BlockAds      bool
 	DirectDomains []string
 	LogLevel      string
@@ -54,9 +54,9 @@ type Main struct {
 	ExpiryWarn    int
 	UsageResetDay int
 	UsageQuotaGB  int
-	IP            ChangeIP   // first modem, plus the global triggers
-	IPTarget      string     // auto, all or a modem ID
-	Modems        []ChangeIP // every modem with a method, IP first
+	IP            ChangeIP
+	IPTarget      string
+	Modems        []ChangeIP
 }
 
 type ChangeIP struct {
@@ -108,12 +108,14 @@ type Profile struct {
 	DNSResolv  string
 	DNSPubkey  string
 	DNSType    string
+	DNSEdns    int
+	DNSWindow  int
 	Order      int
 	Expires    string
 	Dashboard  bool
-	Wan        string // OpenWrt interface this account goes out on ("" = system route)
-	Balance    bool   // joins the Balance mode
-	Weight     int    // Balance: share of new connections, 1–5
+	Wan        string
+	Balance    bool
+	Weight     int
 
 	XProto   string
 	UUID     string
@@ -131,6 +133,9 @@ type Profile struct {
 	SpiderX  string
 	VCN      string
 	PCS      string
+	XPay     bool
+	XPayPos  string
+	TLSName  string
 }
 
 func (p Profile) ExpiryTime() (time.Time, bool) {
@@ -159,22 +164,16 @@ type Config struct {
 	Schedules []Schedule
 }
 
-// Schedule: at Time (HH:MM) on Days, use an account (Action "account",
-// Value = profile ID), a profile selection mode (Action "policy"), or keep
-// the tunnel off or on from Time to End (Action "tunnel", Value "off"/"on").
-// An account or mode schedule with an End goes back to the account or mode
-// used before at End; without one the change stays.
 type Schedule struct {
 	ID      string
 	Time    string
-	End     string // end of the window (HH:MM); optional for account and mode
-	Days    string // daily, weekdays, weekend, or mon,tue,…
+	End     string
+	Days    string
 	Action  string
 	Value   string
 	Enabled bool
 }
 
-// Due says whether the schedule fires at t (same minute, matching day).
 func (s Schedule) Due(t time.Time) bool {
 	if !s.Enabled || s.Value == "" || s.Action == "tunnel" || t.Format("15:04") != s.Time {
 		return false
@@ -210,8 +209,6 @@ func Load(path string) (*Config, error) {
 	return c, nil
 }
 
-// LuCI refers to unnamed sections by uci's generated ids (cfgXXXXXX);
-// "uci -X" lists them in file order.
 func (c *Config) aliasAnonymous(path string) {
 	if !filepath.IsAbs(path) || filepath.Dir(path) != "/etc/config" {
 		return
@@ -280,7 +277,6 @@ func modemDefaults() ChangeIP {
 		HilinkAddr: "192.168.8.1", HilinkUser: "admin", Wait: 5, MaxTries: 5}
 }
 
-// Modem returns the modem with this ID.
 func (m *Main) Modem(id string) (ChangeIP, bool) {
 	for _, x := range m.Modems {
 		if x.ID == id {
@@ -330,7 +326,7 @@ func readMain(m *Main, s *uci.Section) {
 	m.DNSServer = s.Get("dns_server", m.DNSServer)
 	m.ManageDnsmasq = b(s, "manage_dnsmasq", m.ManageDnsmasq)
 	m.LogLevel = oneOf(s.Get("log_level", m.LogLevel), m.LogLevel, "info", "debug", "error")
-	m.UpdateRepo = Repo // fixed: updates and the Xray add-on only come from the official repo
+	m.UpdateRepo = Repo
 	m.UpdateChannel = oneOf(s.Get("update_channel", m.UpdateChannel), m.UpdateChannel, "stable", "beta")
 	m.UpdateCheck = b(s, "update_check", m.UpdateCheck)
 	m.ExpiryWarn = n(s, "expiry_warn", m.ExpiryWarn, 0, 60)
@@ -370,9 +366,6 @@ func readMain(m *Main, s *uci.Section) {
 	}
 }
 
-// bypassEntry keeps one "direct" line only when it is an IP or CIDR. The list goes
-// into ip rules and an nft set, where a single typo would make the whole set fail to
-// load (redirect mode then cannot start), so anything else is dropped.
 func bypassEntry(v string) string {
 	v = strings.TrimSpace(strings.SplitN(v, "#", 2)[0])
 	if v == "" {
@@ -389,8 +382,6 @@ func bypassEntry(v string) string {
 
 var reDash = regexp.MustCompile(`\s*-\s*`)
 
-// readModem reads the per-modem Change IP options. The main section holds
-// the first modem, every "modem" section one more, with the same names.
 func readModem(ip *ChangeIP, s *uci.Section) {
 	ip.Method = oneOf(s.Get("ip_method", ip.Method), ip.Method, "none", "iface", "at", "mm", "hilink", "adb")
 	ip.Iface = s.Get("ip_iface", ip.Iface)
@@ -403,7 +394,7 @@ func readModem(ip *ChangeIP, s *uci.Section) {
 	ip.HilinkPass = s.Get("hilink_pass", ip.HilinkPass)
 	ip.ADBSerial = s.Get("adb_serial", ip.ADBSerial)
 	if _, set := s.Options["ip_iface"]; !set && (ip.Method == "hilink" || ip.Method == "adb") {
-		ip.Iface = "" // only used to check the IP; "wwan" may be another modem
+		ip.Iface = ""
 	}
 	ip.Wait = n(s, "ip_wait", ip.Wait, 1, 120)
 	ip.EveryH = n(s, "ip_every_h", ip.EveryH, 0, 168)
@@ -435,7 +426,9 @@ func readProfile(s *uci.Section) Profile {
 		DNSDomain:  strings.TrimSpace(s.Get("dns_domain", "")),
 		DNSResolv:  strings.TrimSpace(s.Get("dns_resolver", "1.1.1.1")),
 		DNSPubkey:  strings.TrimSpace(s.Get("dns_pubkey", "")),
-		DNSType:    oneOf(strings.ToLower(s.Get("dns_type", "auto")), "auto", "auto", "txt", "null", "cname", "ns", "mx", "srv"),
+		DNSType:    oneOf(strings.ToLower(s.Get("dns_type", "auto")), "auto", "auto", "txt", "null", "cname", "https", "svcb", "dnskey", "a", "aaaa", "ns", "mx", "srv"),
+		DNSEdns:    n(s, "dns_edns", 1400, 512, 4096),
+		DNSWindow:  n(s, "dns_kcp_window", 512, 32, 4096),
 		Order:      n(s, "order", 0, 0, 100000),
 		Expires:    strings.TrimSpace(s.Get("expires", "")),
 		Dashboard:  b(s, "dashboard", true),
@@ -458,6 +451,7 @@ func readProfile(s *uci.Section) Profile {
 		SpiderX:    strings.TrimSpace(s.Get("spx", "")),
 		VCN:        strings.TrimSpace(s.Get("vcn", "")),
 		PCS:        strings.TrimSpace(s.Get("pcs", "")),
+		XPayPos:    oneOf(s.Get("x_paypos", "inside"), "inside", "inside", "before"),
 	}
 
 	switch p.Mode {
@@ -477,7 +471,14 @@ func readProfile(s *uci.Section) Profile {
 		p.Enhanced = false
 	}
 	if p.Type == "zivpn" || p.Type == "xray" {
-		p.UsePayload, p.UseTLS, p.UseDNS, p.Enhanced, p.Proxy, p.UDPGW = false, false, false, false, "", 0
+		xdns := p.Type == "xray" && b(s, "use_slowdns", false)
+		xpay := p.Type == "xray" && !xdns && b(s, "use_payload", false)
+		xenh := xpay && b(s, "enhanced", false)
+		proxy := p.Proxy
+		p.UsePayload, p.UseTLS, p.UseDNS, p.Enhanced, p.Proxy, p.UDPGW = false, false, xdns, false, "", 0
+		if xpay {
+			p.XPay, p.Enhanced, p.Proxy = true, xenh, proxy
+		}
 	}
 	if p.Type == "xray" {
 		p.normalizeXray()
@@ -511,6 +512,13 @@ func DefaultPort(useTLS, usePayload bool) int {
 }
 
 func (p *Profile) normalizeXray() {
+	if p.UseDNS {
+
+		p.XSec = "none"
+		if p.XNet == "tcp" || p.XNet == "grpc" {
+			p.XNet = "ws"
+		}
+	}
 	if p.XSec == "reality" {
 		p.XProto = "vless"
 		if p.XNet == "ws" || p.XNet == "httpupgrade" {
@@ -520,6 +528,16 @@ func (p *Profile) normalizeXray() {
 	if p.XProto != "vless" || p.XNet != "tcp" || p.XSec == "none" {
 		p.XFlow = ""
 	}
+	if p.XPay && !p.XPayOK() {
+		p.XPay, p.Enhanced, p.Proxy = false, false, ""
+	}
+	if p.XPay {
+		p.XFlow = ""
+	}
+}
+
+func (p Profile) XPayOK() bool {
+	return !p.UseDNS && p.XSec != "reality" && (p.XNet == "tcp" || p.XNet == "ws" || p.XNet == "httpupgrade")
 }
 
 var xNetName = map[string]string{"tcp": "TCP", "ws": "WS", "httpupgrade": "HTTPUpgrade", "grpc": "gRPC", "xhttp": "XHTTP"}
@@ -532,6 +550,15 @@ func (p Profile) XrayLabel() string {
 		l += " TLS"
 	case "reality":
 		l += " REALITY"
+	}
+	if p.UseDNS {
+		l += " + SlowDNS"
+	}
+	if p.XPay {
+		l += " + Payload"
+		if p.Enhanced {
+			l += " + Enhanced"
+		}
 	}
 	return l
 }
@@ -575,6 +602,14 @@ func (p Profile) Validate() error {
 		}
 		if p.XSec == "reality" && p.PBK == "" {
 			return fmt.Errorf("profile %q: REALITY needs the public key (pbk)", p.Name)
+		}
+		if p.UseDNS && (p.DNSDomain == "" || len(p.DNSPubkey) != 64) {
+			return fmt.Errorf("profile %q: SlowDNS needs NS domain and a 64-hex public key", p.Name)
+		}
+		if p.XPay && p.Proxy != "" && !strings.Contains(strings.ToLower(p.Proxy), "[rotate=") && !strings.Contains(strings.ToLower(p.Proxy), "[random=") {
+			if _, _, err := net.SplitHostPort(p.Proxy); err != nil {
+				return fmt.Errorf("profile %q: remote proxy must be host:port", p.Name)
+			}
 		}
 		return nil
 	}
@@ -633,12 +668,6 @@ func (c *Config) Find(id string) (Profile, bool) {
 	return Profile{}, false
 }
 
-// quicMode reads block_quic. Empty or "auto" is Auto: QUIC is blocked unless
-// the account carries UDP natively (ZiVPN). YouTube and browsers use QUIC, and
-// QUIC carried inside TCP (Xray WS/gRPC/TCP, SSH UDPGW) stalls on every lost
-// or late packet, which shows as a frozen video or "Something went wrong".
-// Repo is where updates and the Xray add-on come from. It cannot be changed in
-// the settings, so a router never installs a build from someone else's repo.
 const Repo = "dudul19/luci-app-tomato-tunnel"
 
 func quicMode(v string) string {

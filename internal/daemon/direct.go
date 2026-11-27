@@ -10,12 +10,6 @@ import (
 	"github.com/dudul19/tomato-tunnel/internal/tunnel"
 )
 
-// Direct domains for every account type: a connection to a site on the list
-// leaves straight through the modem instead of the tunnel (bank apps, games).
-// Xray accounts also do this inside Xray; here it covers SSH, SlowDNS, ZiVPN
-// and Balance. The site of an IP comes from the tunnel DNS answers, so it works
-// once the device has looked the name up through the router.
-
 func (t *flowTable) nameOf(ip string) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -38,7 +32,6 @@ func directMatch(name string, list []string) bool {
 	return false
 }
 
-// directFor says whether host (an IP or a name) is on the Direct domains list.
 func (d *Daemon) directFor(host string) bool {
 	list := d.cfg.Main.DirectDomains
 	if len(list) == 0 {
@@ -60,7 +53,6 @@ func (d *Daemon) directIface() string {
 	return d.cfg.Main.WanIface
 }
 
-// directUDP sends one UDP flow straight out of the modem.
 type directUDP struct {
 	pc   *net.UDPConn
 	once sync.Once
