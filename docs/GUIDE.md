@@ -2,7 +2,7 @@
 
 **English** · [Bahasa Indonesia](GUIDE.id.md)
 
-Every feature up to **version 1.7.2**, in short.
+Every feature up to **version 1.7.3**, in short.
 
 ## Contents
 
@@ -55,8 +55,8 @@ opkg print-architecture  # OpenWrt 23.05 and 24.10
 2. Install:
 
    ```sh
-   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.2_aarch64_generic.apk   # OpenWrt 25.x
-   opkg install /tmp/luci-app-tomato-tunnel_1.7.2_aarch64_generic.ipk                # OpenWrt 23.05 / 24.10
+   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.3_aarch64_generic.apk   # OpenWrt 25.x
+   opkg install /tmp/luci-app-tomato-tunnel_1.7.3_aarch64_generic.ipk                # OpenWrt 23.05 / 24.10
    ```
 
 3. Open **Services › Tomato Tunnel**.
