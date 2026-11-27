@@ -375,8 +375,8 @@ King3399 (RK3399, 2 GB), ImmortalWrt, TUN mode. 100 % = one core.
 | 1.6.0 | Several modems, IP ranges, Go out through, Balance, new payload tags, banner header |
 | 1.7.0 | New look, Connections tab, real ping, Fallback goes back, Block QUIC, Direct domains, Schedule |
 | 1.7.1 | Tunnel on/off schedule, faster DNS, no more late notifications, Balance by weight, save fix on OpenWrt 24.10 |
-| 1.7.3 | Xray over SlowDNS, payload for Xray (Enhanced, inside / before TLS), new SlowDNS record types HTTPS, SVCB, DNSKEY, A and AAAA (DNS64 networks too), resolver Auto (operator DNS), EDNS0 and KCP window settings, steadier A/AAAA, Stop no longer hangs on a stuck SlowDNS, phone button layout fix |
 | 1.7.2 | One Xray process for Balance (about half the RAM), YouTube fix (Block QUIC Auto, YouTube on one account), steadier Balance main account, Schedule "until", Tailscale through the tunnel + LuCI over Tailscale, Usage "Show all", phone layout fixes, shorter texts, faster page load |
+| 1.7.3 | Xray over SlowDNS, payload for Xray (Enhanced, inside / before TLS), new SlowDNS record types HTTPS, SVCB, DNSKEY, A and AAAA (DNS64 networks too), resolver Auto (operator DNS), EDNS0 and KCP window settings, steadier A/AAAA, Stop no longer hangs on a stuck SlowDNS, phone button layout fix |
 
 ---
 

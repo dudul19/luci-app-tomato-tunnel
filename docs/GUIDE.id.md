@@ -375,8 +375,8 @@ King3399 (RK3399, 2 GB), ImmortalWrt, mode TUN. 100 % = satu core.
 | 1.6.0 | Multi modem, rentang IP, Go out through, Balance, tag payload baru, banner di semua tab |
 | 1.7.0 | Tampilan baru, tab Connections, ping sungguhan, Fallback kembali, Block QUIC, Direct domains, Schedule |
 | 1.7.1 | Jadwal tunnel on/off, DNS lebih cepat, notifikasi tidak telat lagi, Balance sesuai weight, perbaikan simpan di OpenWrt 24.10 |
-| 1.7.3 | Xray lewat SlowDNS, payload untuk Xray (Enhanced, di dalam / sebelum TLS), jenis record SlowDNS baru HTTPS, SVCB, DNSKEY, A, dan AAAA (juga jaringan DNS64), resolver Auto (DNS operator), pengaturan EDNS0 dan KCP window, A/AAAA lebih stabil, Stop tidak macet lagi saat SlowDNS tersendat, perbaikan tata letak tombol di HP |
 | 1.7.2 | Satu proses Xray untuk Balance (RAM sekitar separuh), perbaikan YouTube (Block QUIC Auto, YouTube di satu akun), akun utama Balance lebih stabil, Schedule "until", Tailscale lewat tunnel + LuCI lewat Tailscale, Usage "Show all", perbaikan tampilan HP, teks lebih singkat, halaman lebih cepat terbuka |
+| 1.7.3 | Xray lewat SlowDNS, payload untuk Xray (Enhanced, di dalam / sebelum TLS), jenis record SlowDNS baru HTTPS, SVCB, DNSKEY, A, dan AAAA (juga jaringan DNS64), resolver Auto (DNS operator), pengaturan EDNS0 dan KCP window, A/AAAA lebih stabil, Stop tidak macet lagi saat SlowDNS tersendat, perbaikan tata letak tombol di HP |
 
 ---
 
