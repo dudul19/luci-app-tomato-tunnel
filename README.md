@@ -26,7 +26,7 @@ feature, setting and payload tag is explained there.
 
 ![Dashboard](docs/screenshots/dashboard-v1.7.0.png)
 
-Dashboard (v1.7.0 shown, same look in v1.7.4) on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
+Dashboard (v1.7.0 shown, same look in v1.7.5) on ImmortalWrt with the router's own LuCI theme, accounts in Balance. Public IP, ISP, domains and ports are blurred.
 
 ## Features
 
@@ -76,8 +76,8 @@ the [Releases](https://github.com/dudul19/luci-app-tomato-tunnel/releases/latest
 copy it to `/tmp` and install it:
 
 ```sh
-apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.apk   # OpenWrt 25.x and newer
-opkg install /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
+apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.5_aarch64_generic.apk   # OpenWrt 25.x and newer
+opkg install /tmp/luci-app-tomato-tunnel_1.7.5_aarch64_generic.ipk                # OpenWrt 23.05 and 24.10
 ```
 
 Then open LuCI › Services › Tomato Tunnel. Xray accounts need the Xray add-on:
@@ -101,8 +101,8 @@ APK=/path/to/apk scripts/build.sh
 
 Output goes to `dist/`. The version comes from the `VERSION` file and the
 package release from `REL` in `scripts/build.sh`. A dev version
-(`1.7.4-dev`) becomes `1.7.4_pre` (apk) / `1.7.4~dev` (ipk), so the final
-`1.7.4` installs over it. The `apk` tool (apk-tools 3) comes with any OpenWrt 25.x
+(`1.7.5-dev`) becomes `1.7.5_pre` (apk) / `1.7.5~dev` (ipk), so the final
+`1.7.5` installs over it. The `apk` tool (apk-tools 3) comes with any OpenWrt 25.x
 SDK or ImageBuilder in `staging_dir/host/bin/apk`. You also need Go 1.27 or
 newer, `git`, `fakeroot` and `unshare`. The build works in `$TMPDIR`; point it
 at a disk folder (`TMPDIR=~/.cache/tt-build`) when `/tmp` is a small tmpfs.

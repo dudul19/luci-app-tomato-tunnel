@@ -40,6 +40,7 @@ type Main struct {
 	ManageDnsmasq bool
 	Bypass        []string
 	BypassID      bool
+	RouterSelf    bool
 	BalanceSticky bool
 	UnifiedDelay  bool
 	FallbackBack  bool
@@ -346,6 +347,7 @@ func readMain(m *Main, s *uci.Section) {
 	ip.Button = b(s, "ip_button", ip.Button)
 	m.IPTarget = s.Get("ip_target", "auto")
 	m.BypassID = b(s, "bypass_id", m.BypassID)
+	m.RouterSelf = b(s, "router_self", true)
 	m.BalanceSticky = b(s, "balance_sticky", false)
 	m.UnifiedDelay = b(s, "unified_delay", true)
 	m.FallbackBack = b(s, "fallback_return", true)

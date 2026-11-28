@@ -4,11 +4,14 @@ TABLE=1080
 PREF_MAIN=1070
 PREF_BYPASS=1075
 PREF_TUN=1080
+PREF_SELF=1081
 PREF_TS=1072
 TSMARK=0x80000/0xff0000
 STATE=/etc/tomato-tunnel
 IDLIST=/usr/share/tomato-tunnel/cidr-id.txt
 IDMARK=0x7454
+SELFMARK=0x7455
+SELFGID=65534
 DNSBAK=$STATE/dnsmasq.bak
 
 TUN=${TUN:-tt0}
@@ -23,7 +26,7 @@ is_v6() { case "$1" in *:*) return 0;; esac; return 1; }
 
 rules_del() {
 	for fam in -4 -6; do
-		for p in $PREF_MAIN $PREF_TS $PREF_BYPASS $PREF_TUN; do
+		for p in $PREF_MAIN $PREF_TS $PREF_BYPASS $PREF_TUN $PREF_SELF; do
 			while ip $fam rule del pref $p 2>/dev/null; do :; done
 		done
 		ip $fam route flush table $TABLE 2>/dev/null
@@ -50,6 +53,7 @@ tun_up() {
 	done
 	ts_up
 	byp_id_up
+	self_up
 	fw_allow
 	acct_up
 	if ! have_nft; then
@@ -110,10 +114,50 @@ table inet tomato_tunnel_byp {
 		type filter hook prerouting priority mangle - 5; policy accept;
 		iifname "$LAN" ip daddr @id4 meta mark set $IDMARK
 	}
+	chain out {
+		type route hook output priority mangle - 10; policy accept;
+		meta skgid != $SELFGID ip daddr @id4 meta mark set $IDMARK
+	}
 }
 NFT
 	ip -4 rule add pref $PREF_BYPASS fwmark $IDMARK lookup main 2>/dev/null
 	log "Indonesian IPs go direct ($(wc -l < "$IDLIST") ranges)"
+}
+
+# Router-self traffic (speedtest, opkg, curl run on the router) goes through
+# the tunnel too, like OpenClash "Router-Self Proxy". Every tomato-tunnel
+# process runs with gid $SELFGID (main.go), so the tunnel's own connections to
+# the server, the bot and account tests stay direct. DNS and NTP stay as they
+# were so the router can always resolve and keep its clock; ping stays
+# direct too (the TUN engine does not carry ICMP).
+self_up() {
+	have_nft && nft delete table inet tomato_tunnel_self 2>/dev/null
+	[ "$ROUTER_SELF" = 1 ] || return 0
+	have_nft || { log "router traffic through the tunnel needs nftables"; return 0; }
+	nft -f - <<NFT || { log "router traffic through the tunnel: nft failed"; return 0; }
+table inet tomato_tunnel_self {
+	chain out {
+		type route hook output priority mangle - 5; policy accept;
+		meta skgid $SELFGID return
+		meta mark != 0 return
+		oifname "lo" return
+		fib daddr type { local, broadcast, multicast, anycast } return
+		ip daddr { $(echo $private4 | sed 's/ /, /g') } return
+		ip6 daddr { ::/127, fe80::/10, fc00::/7, ff00::/8 } return
+		meta l4proto { icmp, ipv6-icmp } return
+		meta l4proto { tcp, udp } th dport { 53, 123 } return
+		meta mark set $SELFMARK
+	}
+}
+NFT
+	for fam in -4 -6; do
+		ip $fam rule add pref $PREF_SELF fwmark $SELFMARK lookup $TABLE 2>/dev/null
+	done
+	log "Router traffic goes through the tunnel"
+}
+
+self_down() {
+	have_nft && nft delete table inet tomato_tunnel_self 2>/dev/null
 }
 
 byp_id_down() {
@@ -132,6 +176,7 @@ fw_revoke() {
 }
 
 tun_down() {
+	self_down
 	byp_id_down
 	acct_down
 	fw_revoke
@@ -166,6 +211,17 @@ table ip tomato_tunnel {
 		iifname "$LAN" ip saddr @skip_from return
 		iifname "$LAN" meta l4proto tcp redirect to :$REDIR_PORT
 	}
+$( [ "$ROUTER_SELF" = 1 ] && cat <<OUT
+	chain out {
+		type nat hook output priority -105; policy accept;
+		meta skgid $SELFGID return
+		oifname "lo" return
+		ip daddr @skip_to return
+		fib daddr type local return
+		meta l4proto tcp redirect to :$REDIR_PORT
+	}
+OUT
+)
 }
 NFT
 	else

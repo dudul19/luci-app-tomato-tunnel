@@ -2,7 +2,7 @@
 
 **English** · [Bahasa Indonesia](GUIDE.id.md)
 
-Every feature up to **version 1.7.4**, in short.
+Every feature up to **version 1.7.5**, in short.
 
 ## Contents
 
@@ -55,8 +55,8 @@ opkg print-architecture  # OpenWrt 23.05 and 24.10
 2. Install:
 
    ```sh
-   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.apk   # OpenWrt 25.x
-   opkg install /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.ipk                # OpenWrt 23.05 / 24.10
+   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.5_aarch64_generic.apk   # OpenWrt 25.x
+   opkg install /tmp/luci-app-tomato-tunnel_1.7.5_aarch64_generic.ipk                # OpenWrt 23.05 / 24.10
    ```
 
 3. Open **Services › Tomato Tunnel**.
@@ -257,6 +257,7 @@ Each line: **time**, **days**, **action**, value, **until**.
 | Outgoing interface | Way out for accounts on Auto |
 | DNS through the tunnel / DNS server | DNS over the tunnel, default `1.1.1.1` |
 | Manage dnsmasq | Point dnsmasq at the tunnel DNS, restored on Stop |
+| Router traffic through the tunnel | Speedtest, opkg, curl on the router itself use the tunnel too (default on, like OpenClash Router-Self Proxy). DNS, NTP, ping and Tomato Tunnel's own connections stay direct |
 | Indonesian IPs go direct | Local sites and games skip the tunnel |
 | Direct IPs / devices | Skip the tunnel, one per line |
 | Direct domains | Leave through the modem (banks, games), subdomains included |
@@ -378,6 +379,7 @@ King3399 (RK3399, 2 GB), ImmortalWrt, TUN mode. 100 % = one core.
 | 1.7.2 | One Xray process for Balance (about half the RAM), YouTube fix (Block QUIC Auto, YouTube on one account), steadier Balance main account, Schedule "until", Tailscale through the tunnel + LuCI over Tailscale, Usage "Show all", phone layout fixes, shorter texts, faster page load |
 | 1.7.3 | Xray over SlowDNS, payload for Xray (Enhanced, inside / before TLS), new SlowDNS record types HTTPS, SVCB, DNSKEY, A and AAAA (DNS64 networks too), resolver Auto (operator DNS), EDNS0 and KCP window settings, steadier A/AAAA, Stop no longer hangs on a stuck SlowDNS, phone button layout fix |
 | 1.7.4 | Start and Save work while another LuCI change waits for Apply confirmation (OpenWrt 24.10) |
+| 1.7.5 | Router traffic (speedtest, opkg, curl on the router) goes through the tunnel too, Settings › Network › Router traffic through the tunnel |
 
 ---
 

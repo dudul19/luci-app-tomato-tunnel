@@ -2,7 +2,7 @@
 
 [English](GUIDE.md) · **Bahasa Indonesia**
 
-Semua fitur sampai **versi 1.7.4**, singkat saja. Nama menu ditulis dalam bahasa Inggris seperti di LuCI.
+Semua fitur sampai **versi 1.7.5**, singkat saja. Nama menu ditulis dalam bahasa Inggris seperti di LuCI.
 
 ## Daftar isi
 
@@ -55,8 +55,8 @@ opkg print-architecture  # OpenWrt 23.05 dan 24.10
 2. Pasang:
 
    ```sh
-   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.apk   # OpenWrt 25.x
-   opkg install /tmp/luci-app-tomato-tunnel_1.7.4_aarch64_generic.ipk                # OpenWrt 23.05 / 24.10
+   apk add --allow-untrusted /tmp/luci-app-tomato-tunnel_1.7.5_aarch64_generic.apk   # OpenWrt 25.x
+   opkg install /tmp/luci-app-tomato-tunnel_1.7.5_aarch64_generic.ipk                # OpenWrt 23.05 / 24.10
    ```
 
 3. Buka **Services › Tomato Tunnel**.
@@ -257,6 +257,7 @@ Setiap baris: **jam**, **hari**, **aksi**, nilai, **until**.
 | Outgoing interface | Jalan keluar untuk akun yang Auto |
 | DNS through the tunnel / DNS server | DNS lewat tunnel, default `1.1.1.1` |
 | Manage dnsmasq | Arahkan dnsmasq ke DNS tunnel, dikembalikan saat Stop |
+| Router traffic through the tunnel | Speedtest, opkg, curl yang dijalankan di router ikut lewat tunnel (default aktif, seperti Router-Self Proxy di OpenClash). DNS, NTP, ping, dan koneksi Tomato Tunnel sendiri tetap langsung |
 | Indonesian IPs go direct | Situs dan game lokal tidak lewat tunnel |
 | Direct IPs / devices | Tidak lewat tunnel, satu per baris |
 | Direct domains | Keluar langsung lewat modem (bank, game), subdomain ikut |
@@ -378,6 +379,7 @@ King3399 (RK3399, 2 GB), ImmortalWrt, mode TUN. 100 % = satu core.
 | 1.7.2 | Satu proses Xray untuk Balance (RAM sekitar separuh), perbaikan YouTube (Block QUIC Auto, YouTube di satu akun), akun utama Balance lebih stabil, Schedule "until", Tailscale lewat tunnel + LuCI lewat Tailscale, Usage "Show all", perbaikan tampilan HP, teks lebih singkat, halaman lebih cepat terbuka |
 | 1.7.3 | Xray lewat SlowDNS, payload untuk Xray (Enhanced, di dalam / sebelum TLS), jenis record SlowDNS baru HTTPS, SVCB, DNSKEY, A, dan AAAA (juga jaringan DNS64), resolver Auto (DNS operator), pengaturan EDNS0 dan KCP window, A/AAAA lebih stabil, Stop tidak macet lagi saat SlowDNS tersendat, perbaikan tata letak tombol di HP |
 | 1.7.4 | Start dan Save tetap jalan saat ada perubahan LuCI lain yang menunggu konfirmasi Apply (OpenWrt 24.10) |
+| 1.7.5 | Trafik router sendiri (speedtest, opkg, curl di router) ikut lewat tunnel, Settings › Network › Router traffic through the tunnel |
 
 ---
 

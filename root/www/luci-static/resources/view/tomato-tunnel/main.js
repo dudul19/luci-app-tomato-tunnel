@@ -267,7 +267,7 @@ function niceLabel(d) {
 	if (k === 'xray') return 'Xray · ' + xrayLabel(d);
 	return layerLabel(L);
 }
-var RESTART_KEYS = [ 'net_mode', 'socks_port', 'socks_listen', 'wan_iface', 'dns_mode', 'dns_server', 'manage_dnsmasq', 'bypass', 'bypass_id', 'block_ads', 'direct_domain', 'ssh_compat', 'check_url', 'unified_delay', 'block_quic', 'tailscale', 'check_interval', 'check_fail', 'sessions', 'log_level' ];
+var RESTART_KEYS = [ 'net_mode', 'socks_port', 'socks_listen', 'wan_iface', 'dns_mode', 'dns_server', 'manage_dnsmasq', 'bypass', 'bypass_id', 'router_self', 'block_ads', 'direct_domain', 'ssh_compat', 'check_url', 'unified_delay', 'block_quic', 'tailscale', 'check_interval', 'check_fail', 'sessions', 'log_level' ];
 var PROFILE_KEYS = [ 'name', 'type', 'use_payload', 'use_tls', 'use_slowdns', 'enhanced', 'insecure', 'host', 'port', 'user', 'pass', 'bug', 'ua', 'payload', 'proxy', 'udpgw', 'split_delay', 'dns_domain', 'dns_resolver', 'dns_pubkey', 'dns_type', 'dns_edns', 'dns_kcp_window', 'expires', 'dashboard', 'wan', 'balance', 'balance_weight',
 	'x_proto', 'uuid', 'x_net', 'x_path', 'x_host', 'x_service', 'x_mode', 'x_flow', 'x_sec', 'sni', 'fp', 'pbk', 'sid', 'spx', 'vcn', 'pcs', 'x_paypos' ];
 function onDash(p) { return p.dashboard !== '0'; }
@@ -2080,6 +2080,7 @@ return view.extend({
 				row('DNS through the tunnel', sel('dns_mode', 'tunnel', [ [ 'tunnel', 'Yes · DNS over TCP through the tunnel' ], [ 'off', 'No (use ISP DNS)' ] ])),
 				row('DNS server', txt('dns_server', '1.1.1.1'), 'Asked from the server side.'),
 				row('Manage dnsmasq', flag('manage_dnsmasq', '1'), 'Restored on Stop.'),
+				row('Router traffic through the tunnel', flag('router_self', '1'), 'Speedtest, opkg and curl on the router use the tunnel too. DNS, NTP, ping and Tomato Tunnel itself stay direct.'),
 				row('Indonesian IPs go direct', flag('bypass_id', '0'), 'Local sites and games skip the tunnel.'),
 				row('Direct IPs / devices', bypass, 'One IP, CIDR or device per line skips the tunnel.'),
 				row('Direct domains', dd, 'One per line, subdomains included. For banks and games that block VPN.'),

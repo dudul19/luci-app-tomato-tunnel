@@ -1033,7 +1033,7 @@ func (d *Daemon) netSetup() error {
 		"NET_MODE="+m.NetMode, "TUN="+TunName, "LAN="+m.LanIface,
 		"REDIR_PORT="+strconv.Itoa(m.RedirPort), "DNS_PORT="+strconv.Itoa(m.DNSPort),
 		"DNS_MODE="+m.DNSMode, "MANAGE_DNSMASQ="+b2s(m.ManageDnsmasq),
-		"BYPASS="+strings.Join(m.Bypass, " "), "BYPASS_ID="+b2s(m.BypassID))
+		"BYPASS="+strings.Join(m.Bypass, " "), "BYPASS_ID="+b2s(m.BypassID), "ROUTER_SELF="+b2s(m.RouterSelf))
 	cmd := exec.Command(NetScript, "up")
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()

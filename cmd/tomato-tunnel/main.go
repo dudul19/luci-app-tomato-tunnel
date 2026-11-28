@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dudul19/tomato-tunnel/internal/bot"
@@ -44,8 +45,17 @@ usage:
 	os.Exit(2)
 }
 
+// selfGID is the group every tomato-tunnel process runs with. net.sh sends
+// the router's own traffic through the tunnel except sockets of this group,
+// so the tunnel's connections to the server, the bot and account tests stay
+// direct (same idea as OpenClash, whose core runs as nogroup).
+const selfGID = 65534
+
 func main() {
 	daemon.Version = version
+	if os.Getuid() == 0 && os.Getgid() != selfGID {
+		syscall.Setgid(selfGID)
+	}
 	if len(os.Args) < 2 {
 		usage()
 	}
